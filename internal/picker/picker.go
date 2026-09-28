@@ -11,7 +11,6 @@ import (
 	"github.com/sahilm/fuzzy"
 
 	"github.com/AugustDG/ws/internal/discover"
-	"github.com/AugustDG/ws/internal/ui"
 )
 
 // Action is what the user chose to do with the selected item.
@@ -40,6 +39,9 @@ func Run(items []discover.Item, display func(string) string) (Choice, error) {
 }
 
 var (
+	styleDim      = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	styleRunning  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	styleExternal = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 	styleSelected = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
 	styleMatch    = lipgloss.NewStyle().Underline(true)
 )
@@ -136,7 +138,7 @@ func (m model) View() string {
 	for i := start; i < end; i++ {
 		b.WriteString(m.row(m.matches[i], i == m.cursor) + "\n")
 	}
-	b.WriteString(ui.Dim.Render(fmt.Sprintf("%d/%d  enter open · ctrl-x stop · esc quit", len(m.matches), len(m.items))))
+	b.WriteString(styleDim.Render(fmt.Sprintf("%d/%d  enter open · ctrl-x stop · esc quit", len(m.matches), len(m.items))))
 	return b.String()
 }
 
@@ -144,7 +146,7 @@ func (m model) row(match fuzzy.Match, selected bool) string {
 	it := m.items[match.Index]
 	marker := "  "
 	if it.Running {
-		marker = ui.StateStyle(it).Render("● ")
+		marker = markerStyle(it).Render("● ")
 	}
 	name := highlight(it.Name, match.MatchedIndexes)
 	if selected {
@@ -154,7 +156,7 @@ func (m model) row(match fuzzy.Match, selected bool) string {
 	}
 	head := marker + name + "  " + it.Kind.String() + "  "
 	path := truncateLeft(m.display(it.Path), m.width-lipgloss.Width(head))
-	return marker + name + "  " + ui.Dim.Render(it.Kind.String()+"  "+path)
+	return marker + name + "  " + styleDim.Render(it.Kind.String()+"  "+path)
 }
 
 // truncateLeft keeps the end of s, which is the informative part of a path.
@@ -187,4 +189,13 @@ func highlight(name string, matched []int) string {
 		}
 	}
 	return b.String()
+}
+
+// markerStyle colors a running item's dot: green when ws started it,
+// yellow when it was started some other way.
+func markerStyle(it discover.Item) lipgloss.Style {
+	if it.External {
+		return styleExternal
+	}
+	return styleRunning
 }

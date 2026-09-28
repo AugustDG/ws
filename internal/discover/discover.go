@@ -32,6 +32,17 @@ type Item struct {
 	External bool // running, but not started by ws
 }
 
+// State is running, external (running but not started by ws) or stopped.
+func (it Item) State() string {
+	switch {
+	case it.External:
+		return "external"
+	case it.Running:
+		return "running"
+	}
+	return "stopped"
+}
+
 // Source produces items. Errors are ignored by Collect so one broken
 // origin doesn't empty the picker.
 type Source func() ([]Item, error)
