@@ -152,10 +152,18 @@ default_layout: default   # layout for directories and projects that name none
 - `ws stop` from inside the session it's stopping hands the work to the tmux
   server (`run-shell -b`), since killing the session would kill `ws` first.
   Output goes to `~/.local/state/ws/stop.log`.
+- `capture --with-execs` saves each pane's foreground program as its `cmd`
+  (`claude`, `bun`), and `--with-args` keeps the arguments (`bun run bench`).
+  Paths to programs on PATH are shortened to their names. Commands are typed
+  into the pane's shell on start, so aliases work. Arguments that contained
+  spaces come back unquoted. Check captured args for secrets before
+  committing a layout.
 - `capture` and `import` turn columns or rows that repeat across worktrees of
   one repo into `for_each: worktree`, set the project root to the main
   checkout and infer the source (`treehouse` for pool paths, else `git`).
-  `--no-generalize` keeps them concrete. A later window that repeats over
+  `--no-generalize` keeps them concrete. When the copies run different
+  commands, the template keeps the ones they share and the rest are listed
+  on stderr. A later window that repeats over
   different worktrees than the first stays concrete too.
 - `$WS_TMUX_SOCKET` points ws at a named tmux server (`tmux -L`), and
   `$WS_STATE_DIR` overrides the state directory.

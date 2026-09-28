@@ -30,12 +30,19 @@ func (f *saveFlags) register(cmd *cobra.Command) {
 func captureCmd() *cobra.Command {
 	var flags saveFlags
 	var session string
+	var withExecs, withArgs bool
 	cmd := &cobra.Command{
 		Use:   "capture",
 		Short: "Turn a running session into a layout",
 		Long: `Turn a running session into a layout. Sizes become percentages, dirs
 under the session root become relative, and columns or rows that repeat
 across a repo's worktrees become for_each: worktree.
+
+With --with-execs, each pane's foreground program is saved as its cmd so it
+starts again with the session; --with-args keeps its arguments too. Commands
+are typed into the pane's shell, so aliases and PATH work. Worktree copies
+that ran different programs keep only the commands they share, and the rest
+are listed on stderr.
 
 Prints YAML unless --as or --project says where to write it.`,
 		Args: cobra.NoArgs,
@@ -49,7 +56,14 @@ Prints YAML unless --as or --project says where to write it.`,
 					return fmt.Errorf("pass --session when running outside tmux")
 				}
 			}
-			windows, root, err := capture.FromSession(a.tmux, session)
+			commands := capture.NoCommands
+			switch {
+			case withArgs:
+				commands = capture.WithArgs
+			case withExecs:
+				commands = capture.ExecsOnly
+			}
+			windows, root, err := capture.FromSession(a.tmux, session, commands)
 			if err != nil {
 				return err
 			}
@@ -61,6 +75,8 @@ Prints YAML unless --as or --project says where to write it.`,
 	}
 	flags.register(cmd)
 	cmd.Flags().StringVarP(&session, "session", "s", "", "session to capture (default: current)")
+	cmd.Flags().BoolVar(&withExecs, "with-execs", false, "record the program each pane is running")
+	cmd.Flags().BoolVar(&withArgs, "with-args", false, "record programs with their arguments (implies --with-execs)")
 	return cmd
 }
 

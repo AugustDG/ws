@@ -19,11 +19,21 @@ type generalized struct {
 	node      layout.Node
 	main      string // the repo's main checkout, which becomes the root
 	worktrees project.Worktrees
+	dropped   []string // commands left out because worktrees ran different ones
 }
 
 func (g generalized) note(window, home string) string {
 	return fmt.Sprintf("window %s repeats across %d worktrees of %s: written as for_each: worktree (%s, count %d)",
 		window, g.worktrees.Count+1, abbrev(g.main, home), g.worktrees.Source, g.worktrees.Count)
+}
+
+// droppedNote lists commands that couldn't go in the template, if any.
+func (g generalized) droppedNote(window string) (string, bool) {
+	if len(g.dropped) == 0 {
+		return "", false
+	}
+	return fmt.Sprintf("window %s: worktrees ran different commands, left out of the template: %s",
+		window, strings.Join(g.dropped, ", ")), true
 }
 
 // compatible reports whether two windows repeat over the same worktrees,
@@ -68,7 +78,11 @@ func generalize(n layout.Node, opts Options) (generalized, bool) {
 		main = tops[0]
 	}
 
-	tmpl := templates[0]
+	var labels []string
+	for _, t := range tops {
+		labels = append(labels, abbrev(t, opts.Home))
+	}
+	tmpl, dropped := sharedCommands(templates, labels)
 	tmpl.ForEach = layout.ForEachWorktree
 	out := n
 	if len(n.Rows) > 0 {
@@ -84,7 +98,7 @@ func generalize(n layout.Node, opts Options) (generalized, bool) {
 		}
 	}
 	return generalized{
-		node: out, main: main,
+		node: out, main: main, dropped: dropped,
 		worktrees: project.Worktrees{Source: source, Count: len(kids) - 1},
 	}, true
 }
@@ -145,9 +159,50 @@ func cloneAll(nodes []layout.Node) []layout.Node {
 	return out
 }
 
-// sameShape compares two templates, allowing small size differences.
+// sharedCommands merges same-shaped templates into one. A pane keeps its
+// command when every copy runs the same one; otherwise the command is left
+// out and reported as "cmd in <label>" for each copy that ran something.
+func sharedCommands(templates []layout.Node, labels []string) (layout.Node, []string) {
+	merged := clone(templates[0])
+	mergedLeaves := leaves(&merged)
+	copies := make([][]*layout.Node, len(templates))
+	for i := range templates {
+		copies[i] = leaves(&templates[i])
+	}
+
+	var dropped []string
+	for j, leaf := range mergedLeaves {
+		same := true
+		for i := range copies {
+			same = same && slices.Equal(copies[i][j].Cmd, leaf.Cmd)
+		}
+		if same {
+			continue
+		}
+		leaf.Cmd = nil
+		for i := range copies {
+			if cmd := strings.Join(copies[i][j].Cmd, "; "); cmd != "" {
+				dropped = append(dropped, fmt.Sprintf("%s in %s", cmd, labels[i]))
+			}
+		}
+	}
+	return merged, dropped
+}
+
+func leaves(n *layout.Node) []*layout.Node {
+	var out []*layout.Node
+	walk(n, func(c *layout.Node) {
+		if len(c.Children()) == 0 {
+			out = append(out, c)
+		}
+	})
+	return out
+}
+
+// sameShape compares two templates' structure, dirs and sizes, allowing
+// small size differences. Commands are merged separately by sharedCommands.
 func sameShape(a, b layout.Node) bool {
-	if a.Dir != b.Dir || !slices.Equal(a.Cmd, b.Cmd) || a.Size.Set != b.Size.Set ||
+	if a.Dir != b.Dir || a.Size.Set != b.Size.Set ||
 		math.Abs(a.Size.Pct-b.Size.Pct) > sizeTolerance ||
 		len(a.Columns) != len(b.Columns) || len(a.Rows) != len(b.Rows) {
 		return false

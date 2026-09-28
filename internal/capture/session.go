@@ -2,6 +2,7 @@ package capture
 
 import (
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -9,24 +10,31 @@ import (
 )
 
 // FromSession reads a running session's windows and its start directory.
-func FromSession(c *tmux.Client, session string) ([]Window, string, error) {
+// Each pane records as much of its foreground program as commands asks for.
+func FromSession(c *tmux.Client, session string, commands Commands) ([]Window, string, error) {
 	target := tmux.Exact(session)
 	root, err := c.Run("display-message", "-p", "-t", target, "#{session_path}")
 	if err != nil {
 		return nil, "", err
 	}
 
-	panes, err := c.Lines("list-panes", "-s", "-t", target, "-F", "#{pane_id}\t#{pane_current_path}\t#{pane_active}")
+	panes, err := c.Lines("list-panes", "-s", "-t", target, "-F", "#{pane_id}\t#{pane_current_path}\t#{pane_active}\t#{pane_pid}")
 	if err != nil {
 		return nil, "", err
 	}
 	byID := map[int]Pane{}
 	for _, p := range panes {
 		id, err := strconv.Atoi(strings.TrimPrefix(p[0], "%"))
-		if err != nil || len(p) < 3 {
+		if err != nil || len(p) < 4 {
 			continue
 		}
-		byID[id] = Pane{Dir: p[1], Active: p[2] == "1"}
+		pane := Pane{Dir: p[1], Active: p[2] == "1"}
+		if pid, err := strconv.Atoi(p[3]); err == nil {
+			if cmd := Foreground(pid, commands); cmd != "" {
+				pane.Cmds = []string{cmd}
+			}
+		}
+		byID[id] = pane
 	}
 
 	rows, err := c.Lines("list-windows", "-t", target, "-F", "#{window_name}\t#{window_layout}\t#{window_active}")
@@ -45,5 +53,33 @@ func FromSession(c *tmux.Client, session string) ([]Window, string, error) {
 		}
 		out = append(out, w)
 	}
+	if root == "" {
+		root = commonDir(out)
+	}
 	return out, root, nil
+}
+
+// commonDir is the deepest directory containing every pane, used as the
+// root for sessions started without a directory.
+func commonDir(windows []Window) string {
+	var common []string
+	first := true
+	for _, w := range windows {
+		for _, p := range w.Panes {
+			parts := strings.Split(filepath.Clean(p.Dir), "/")
+			if first {
+				common, first = parts, false
+				continue
+			}
+			n := 0
+			for n < len(common) && n < len(parts) && common[n] == parts[n] {
+				n++
+			}
+			common = common[:n]
+		}
+	}
+	if len(common) <= 1 {
+		return "/"
+	}
+	return strings.Join(common, "/")
 }

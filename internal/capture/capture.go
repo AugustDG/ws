@@ -68,6 +68,9 @@ func Templatize(windows []Window, opts Options) Result {
 				case g.compatible(res.Root, *res.Worktrees):
 					lw.Node = g.node
 					res.Notes = append(res.Notes, g.note(w.Name, opts.Home))
+					if note, ok := g.droppedNote(w.Name); ok {
+						res.Notes = append(res.Notes, note)
+					}
 				default:
 					res.Notes = append(res.Notes, fmt.Sprintf(
 						"window %s repeats over different worktrees than an earlier window; kept as captured", w.Name))
@@ -169,10 +172,10 @@ func relativize(w *layout.Window, root, home string) {
 		if !filepath.IsAbs(d) {
 			return d // already relative, e.g. inside a for_each template
 		}
-		if d == root {
+		if root != "" && d == root {
 			return ""
 		}
-		if r, ok := strings.CutPrefix(d, root+"/"); ok {
+		if r, ok := strings.CutPrefix(d, strings.TrimSuffix(root, "/")+"/"); ok && root != "" {
 			return r
 		}
 		if d == home {
