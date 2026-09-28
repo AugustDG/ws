@@ -190,10 +190,12 @@ func (c *Client) SetHook(hook string, index int, command string) error {
 	return err
 }
 
-// Quote double-quotes s as one argument in a tmux command string. Inside
-// double quotes tmux treats \ " and $ specially, so those are escaped.
+// Quote single-quotes s as one argument in a tmux command string. Nothing
+// is special inside tmux single quotes, so a ' is written as '"'"' (close,
+// a double-quoted quote, reopen). Double quotes would be shorter, but tmux
+// versions disagree on escapes inside them.
 func Quote(s string) string {
-	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`).Replace(s) + `"`
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
 }
 
 func (c *Client) KillSession(name string) error {
