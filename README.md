@@ -39,6 +39,22 @@ gh release download latest -R AugustDG/ws -p "ws-$(uname -s | tr A-Z a-z)-$(unam
 The `ws` module in the dotfiles repo runs the same thing on install. From a
 checkout, `go install ./cmd/ws` works too.
 
+### Shell completion
+
+`ws completion <zsh|bash|fish>` prints a completion script. Project,
+session and layout names complete from your config and running sessions.
+
+```bash
+ws completion zsh > "${fpath[1]}/_ws"     # zsh: any dir on $fpath, before compinit runs
+ws completion bash > ~/.local/share/bash-completion/completions/ws
+ws completion fish > ~/.config/fish/completions/ws.fish
+```
+
+Or load it on every shell start with `source <(ws completion zsh)` after
+`compinit`.
+
+### tmux binding
+
 Open the picker in a popup with a tmux binding:
 
 ```tmux
