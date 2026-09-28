@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // shells are foreground processes that, run bare, mean "nothing running":
@@ -29,7 +30,8 @@ const (
 )
 
 // Foreground returns what's running in the foreground of the terminal whose
-// first process is panePID, trimmed to mode, or "" when that's an idle shell.
+// first process is panePID, trimmed to mode, or "" when that's an idle shell
+// or this ws process's own job (the pane `ws capture` was run from).
 // It reads the terminal's foreground process group leader, which for a
 // pipeline is the first command. The leader can be panePID itself when the
 // pane was started with a program instead of a shell.
@@ -41,7 +43,7 @@ func Foreground(panePID int, mode Commands) string {
 		return ""
 	}
 	tpgid, err := ps("tpgid", strconv.Itoa(panePID))
-	if err != nil || tpgid == "" || tpgid == "0" || tpgid == "-1" {
+	if err != nil || tpgid == "" || tpgid == "0" || tpgid == "-1" || tpgid == strconv.Itoa(syscall.Getpgrp()) {
 		return ""
 	}
 	args, err := ps("args", tpgid)
