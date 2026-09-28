@@ -27,8 +27,8 @@ func newRootCmd() *cobra.Command {
 		Short: "Open tmux workspaces from reusable layouts",
 		Long: `ws opens projects as tmux sessions built from YAML layouts.
 
-Run it with no arguments for a picker over running sessions, projects and
-directories. Config lives in ~/.config/ws (projects/, layouts/, config.yaml).`,
+Run it with no arguments for a picker over running sessions and projects.
+Config lives in ~/.config/ws (projects/, layouts/, config.yaml).`,
 		Version:      version,
 		SilenceUsage: true,
 		Args:         cobra.NoArgs,
