@@ -28,16 +28,19 @@ tried in that order. With no target, `start` uses the current directory and
 
 ## Install
 
-The repo is private, so installs go through an authenticated `gh`. Every
-push to `main` publishes binaries to the rolling `latest` release:
+Every push to `main` publishes binaries to the rolling `latest` release:
 
 ```bash
-gh release download latest -R AugustDG/ws -p "ws-$(uname -s | tr A-Z a-z)-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')" \
-  -O ~/.local/bin/ws --clobber && chmod +x ~/.local/bin/ws
+curl -fsSL -o ~/.local/bin/ws \
+  "https://github.com/AugustDG/ws/releases/download/latest/ws-$(uname -s | tr A-Z a-z)-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')" \
+  && chmod +x ~/.local/bin/ws
 ```
 
-The `ws` module in the dotfiles repo runs the same thing on install. From a
-checkout, `go install ./cmd/ws` works too.
+Or build it with Go:
+
+```bash
+go install github.com/AugustDG/ws/cmd/ws@latest
+```
 
 ### Shell completion
 
