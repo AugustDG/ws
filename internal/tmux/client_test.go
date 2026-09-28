@@ -21,7 +21,9 @@ func TestQuoteRoundTrips(t *testing.T) {
 		if _, err := c.Run("if-shell", "true", "set-option -g @t "+Quote(s)); err != nil {
 			t.Fatal(err)
 		}
-		got, err := c.Run("show-options", "-gv", "@t")
+		// Read back through a format: some tmux versions escape $ in
+		// show-options output.
+		got, err := c.Run("display-message", "-p", "#{@t}")
 		if err != nil {
 			t.Fatal(err)
 		}
