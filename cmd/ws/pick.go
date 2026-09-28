@@ -54,14 +54,21 @@ func (a *app) items() []discover.Item {
 	return discover.Collect(used, discover.Sessions(a.tmux), discover.Projects(a.cfg))
 }
 
-// pickerItems is items without the session ws runs in, since there's no
-// point switching to it. The top entry is then the one you were in before.
+// pickerItems is items with the session ws runs in moved to the end, since
+// switching to it does nothing. The top entry is then the one you were in
+// before.
 func (a *app) pickerItems() []discover.Item {
 	items := a.items()
-	if current, err := a.tmux.CurrentSession(); err == nil {
-		items = slices.DeleteFunc(items, func(it discover.Item) bool { return it.Name == current })
+	current, err := a.tmux.CurrentSession()
+	if err != nil {
+		return items
 	}
-	return items
+	i := slices.IndexFunc(items, func(it discover.Item) bool { return it.Name == current })
+	if i < 0 {
+		return items
+	}
+	it := items[i]
+	return append(slices.Delete(items, i, i+1), it)
 }
 
 // open attaches to a running item, starting a stopped project first.

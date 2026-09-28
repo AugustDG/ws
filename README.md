@@ -178,7 +178,7 @@ default_layout: default   # layout for directories and projects that name none
   `client-session-changed[77]`) that stamp each ws session when a client
   attaches or switches to it, in `~/.local/state/ws/used`. The record
   survives tmux restarts. The picker sorts by it (and by tmux's own
-  last-attached time), newest first, and leaves out the session you're in.
+  last-attached time), newest first, with the session you're in last.
 - `ws last` prints the most recently used workspace, as a project name, or
   its directory when it has no project file. A terminal can open straight
   into it with `ws start "$(ws last)" || exec zsh -l`.
