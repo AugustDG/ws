@@ -55,6 +55,9 @@ func (a *app) start(t target, layoutName string) error {
 	if err != nil {
 		return err
 	}
+	if err := a.installHooks(); err != nil {
+		fmt.Fprintf(os.Stderr, "ws last won't follow session switches: %v\n", err)
+	}
 	switch {
 	case res.Created:
 		fmt.Fprintf(os.Stderr, "started %s\n", t.project.Name)

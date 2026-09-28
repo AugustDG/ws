@@ -173,6 +173,29 @@ func (c *Client) Attach(session string) error {
 	return syscall.Exec(bin, argv, os.Environ())
 }
 
+// Session returns the running session with this exact name.
+func (c *Client) Session(name string) (Session, bool, error) {
+	sessions, err := c.Sessions()
+	for _, s := range sessions {
+		if s.Name == name {
+			return s, true, nil
+		}
+	}
+	return Session{}, false, err
+}
+
+// SetHook sets one entry of a global hook, leaving its other entries alone.
+func (c *Client) SetHook(hook string, index int, command string) error {
+	_, err := c.Run("set-hook", "-g", fmt.Sprintf("%s[%d]", hook, index), command)
+	return err
+}
+
+// Quote double-quotes s as one argument in a tmux command string. Inside
+// double quotes tmux treats \ " and $ specially, so those are escaped.
+func Quote(s string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`).Replace(s) + `"`
+}
+
 func (c *Client) KillSession(name string) error {
 	_, err := c.Run("kill-session", "-t", Exact(name))
 	return err

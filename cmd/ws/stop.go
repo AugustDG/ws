@@ -4,9 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -94,41 +92,4 @@ func (a *app) sessionName(arg string) (string, error) {
 		return arg, nil
 	}
 	return t.project.Name, nil
-}
-
-// stopFromServer re-runs this stop through `tmux run-shell -b`. The job
-// gets the tmux server's environment, so the dirs and socket this process
-// uses are passed explicitly.
-func (a *app) stopFromServer(name string, opts workspace.StopOptions) error {
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	argv := []string{"env",
-		"WS_CONFIG_DIR=" + a.cfg.Dir,
-		"WS_STATE_DIR=" + a.mgr.State.Dir,
-		"WS_TMUX_SOCKET=" + a.tmux.Socket,
-		exe, "stop", "--from-server"}
-	if opts.KeepWorktrees {
-		argv = append(argv, "--keep-worktrees")
-	}
-	argv = append(argv, "--", name)
-	log := filepath.Join(a.mgr.State.Dir, "stop.log")
-	script := fmt.Sprintf("mkdir -p %s && %s >>%s 2>&1", quote(a.mgr.State.Dir), quoteAll(argv), quote(log))
-	// run-shell expands #{formats}; ## is a literal #.
-	_, err = a.tmux.Run("run-shell", "-b", strings.ReplaceAll(script, "#", "##"))
-	return err
-}
-
-func quoteAll(args []string) string {
-	q := make([]string, len(args))
-	for i, s := range args {
-		q[i] = quote(s)
-	}
-	return strings.Join(q, " ")
-}
-
-// quote single-quotes s for sh.
-func quote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

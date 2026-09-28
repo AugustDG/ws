@@ -1,5 +1,6 @@
-// Package state persists what ws acquired for a running session, so stop
-// can give back exactly that.
+// Package state persists what ws needs across runs: what it acquired for
+// each session, so stop can give back exactly that, and the workspace a
+// client was last in.
 package state
 
 import (
@@ -54,18 +55,37 @@ func (s Store) Load(name string) (Session, error) {
 }
 
 func (s Store) Save(name string, sess Session) error {
+	return s.write(s.path(name), sess)
+}
+
+// write stores v as JSON at path, replacing it atomically.
+func (s Store) write(path string, v any) error {
 	if err := os.MkdirAll(s.Dir, 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(sess, "", "  ")
+	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := s.path(name) + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	// A unique temp file, since tmux hooks can write the same record at once.
+	f, err := os.CreateTemp(s.Dir, filepath.Base(path)+".*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, s.path(name))
+	_, err = f.Write(data)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Chmod(f.Name(), 0o644)
+	}
+	if err == nil {
+		err = os.Rename(f.Name(), path)
+	}
+	if err != nil {
+		os.Remove(f.Name())
+	}
+	return err
 }
 
 func (s Store) Delete(name string) error {
@@ -87,4 +107,28 @@ func (s Store) Names() ([]string, error) {
 		names[i] = strings.TrimSuffix(filepath.Base(p), ".json")
 	}
 	return names, nil
+}
+
+// Last is the workspace a tmux client was most recently in.
+type Last struct {
+	Name string `json:"name"`
+	Root string `json:"root,omitempty"`
+}
+
+// lastPath has no .json extension so Names doesn't list it as a session.
+func (s Store) lastPath() string { return filepath.Join(s.Dir, "last") }
+
+func (s Store) SaveLast(l Last) error { return s.write(s.lastPath(), l) }
+
+// LoadLast returns the last workspace, and false if none is recorded.
+func (s Store) LoadLast() (Last, bool, error) {
+	var l Last
+	data, err := os.ReadFile(s.lastPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return l, false, nil
+	}
+	if err != nil {
+		return l, false, err
+	}
+	return l, true, json.Unmarshal(data, &l)
 }

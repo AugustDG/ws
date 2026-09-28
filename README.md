@@ -14,6 +14,7 @@ ws                      picker: running sessions and projects
 ws start [target]       start (or top up) a session and attach
 ws stop [target]        kill it, run on_stop, return its worktrees
 ws stop --all           stop every session ws started
+ws last                 print the workspace you were last in
 ws ls                   projects, state and leased worktrees
 ws capture --as NAME    save the current session as a layout
 ws import FILE          convert a tmuxinator project
@@ -173,6 +174,12 @@ default_layout: default   # layout for directories and projects that name none
 - `ws stop` from inside the session it's stopping hands the work to the tmux
   server (`run-shell -b`), since killing the session would kill `ws` first.
   Output goes to `~/.local/state/ws/stop.log`.
+- `ws last` prints the workspace a tmux client was last in, as a project
+  name, or its directory when it has no project file. `ws start` sets tmux
+  hooks (`client-attached[77]`, `client-session-changed[77]`) that keep
+  the record in `~/.local/state/ws/last` current, so it survives a tmux
+  restart. A terminal can open straight into it with
+  `ws start "$(ws last)" || tmux new-session -A -s main`.
 - `ws stop --all` skips sessions ws didn't start, and also returns
   worktrees recorded for sessions that are already gone. To shut tmux down
   completely, follow it with `tmux kill-server`.
