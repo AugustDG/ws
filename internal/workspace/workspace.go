@@ -143,6 +143,26 @@ func (m *Manager) Stop(name string, opts StopOptions) error {
 	return errors.Join(errs...)
 }
 
+// Workspaces lists what ws stop --all stops: every running session ws
+// started, plus any stopped session that still has worktrees recorded.
+func (m *Manager) Workspaces() ([]string, error) {
+	names, err := m.State.Names()
+	if err != nil {
+		return nil, err
+	}
+	sessions, err := m.Tmux.Sessions()
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range sessions {
+		if s.Managed {
+			names = append(names, s.Name)
+		}
+	}
+	slices.Sort(names)
+	return slices.Compact(names), nil
+}
+
 // releaseAll gives back every lease recorded for the session and forgets it.
 func (m *Manager) releaseAll(name string) error {
 	rec, err := m.State.Load(name)

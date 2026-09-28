@@ -1,9 +1,11 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -13,18 +15,28 @@ import (
 
 func stopCmd() *cobra.Command {
 	var opts workspace.StopOptions
-	var fromServer bool
+	var fromServer, all bool
 	cmd := &cobra.Command{
 		Use:   "stop [project|session]",
 		Short: "Kill a workspace's session and return its worktrees",
 		Long: `Kill a workspace's session, run its on_stop hook and return any
-worktrees it leased. With no argument, the current session is stopped.`,
+worktrees it leased. With no argument, the current session is stopped.
+
+--all stops every session ws started and returns worktrees still recorded
+for sessions that are already gone. Sessions started some other way are
+left alone.`,
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: completeTargets,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := newApp()
 			if err != nil {
 				return err
+			}
+			if all {
+				if len(args) > 0 {
+					return fmt.Errorf("--all takes no argument")
+				}
+				return a.stopAll(opts)
 			}
 			name, err := a.sessionName(firstArg(args))
 			if err != nil {
@@ -38,10 +50,36 @@ worktrees it leased. With no argument, the current session is stopped.`,
 			return a.mgr.Stop(name, opts)
 		},
 	}
+	cmd.Flags().BoolVar(&all, "all", false, "stop every workspace ws started")
 	cmd.Flags().BoolVar(&opts.KeepWorktrees, "keep-worktrees", false, "keep leased worktrees for the next start")
 	cmd.Flags().BoolVar(&fromServer, "from-server", false, "internal: running via tmux run-shell")
 	_ = cmd.Flags().MarkHidden("from-server")
 	return cmd
+}
+
+// stopAll stops every workspace. The current session goes last, through
+// the tmux server, since killing it ends this process.
+func (a *app) stopAll(opts workspace.StopOptions) error {
+	names, err := a.mgr.Workspaces()
+	if err != nil {
+		return err
+	}
+	current, _ := a.tmux.CurrentSession()
+	var errs []error
+	for _, name := range names {
+		if name == current {
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "stopping %s\n", name)
+		if err := a.mgr.Stop(name, opts); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+		}
+	}
+	if slices.Contains(names, current) {
+		fmt.Fprintf(os.Stderr, "stopping %s\n", current)
+		errs = append(errs, a.stopFromServer(current, opts))
+	}
+	return errors.Join(errs...)
 }
 
 // sessionName maps an argument to the session it stops. It resolves like

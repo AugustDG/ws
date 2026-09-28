@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/AugustDG/ws/internal/worktree"
 )
@@ -73,4 +74,17 @@ func (s Store) Delete(name string) error {
 		return nil
 	}
 	return err
+}
+
+// Names lists the sessions that have a record.
+func (s Store) Names() ([]string, error) {
+	paths, err := filepath.Glob(filepath.Join(s.Dir, "*.json"))
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, len(paths))
+	for i, p := range paths {
+		names[i] = strings.TrimSuffix(filepath.Base(p), ".json")
+	}
+	return names, nil
 }

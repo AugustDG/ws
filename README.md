@@ -13,6 +13,7 @@ session starts and returned when it stops.
 ws                      picker: running sessions and projects
 ws start [target]       start (or top up) a session and attach
 ws stop [target]        kill it, run on_stop, return its worktrees
+ws stop --all           stop every session ws started
 ws ls                   projects, state and leased worktrees
 ws capture --as NAME    save the current session as a layout
 ws import FILE          convert a tmuxinator project
@@ -172,6 +173,9 @@ default_layout: default   # layout for directories and projects that name none
 - `ws stop` from inside the session it's stopping hands the work to the tmux
   server (`run-shell -b`), since killing the session would kill `ws` first.
   Output goes to `~/.local/state/ws/stop.log`.
+- `ws stop --all` skips sessions ws didn't start, and also returns
+  worktrees recorded for sessions that are already gone. To shut tmux down
+  completely, follow it with `tmux kill-server`.
 - `capture --with-execs` saves each pane's foreground program as its `cmd`
   (`claude`, `bun`), and `--with-args` keeps the arguments (`bun run bench`).
   Commands are typed into the pane's shell on start, so aliases work. Check

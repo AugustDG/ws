@@ -195,3 +195,39 @@ func TestFailedStartReturnsNewLeases(t *testing.T) {
 		t.Errorf("leases leaked: leased %v, recorded %d", f.leased(), f.recorded())
 	}
 }
+
+func TestWorkspacesListsManagedAndRecorded(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.m.Start(f.p, StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.m.Tmux.Run("new-session", "-d", "-s", "external"); err != nil {
+		t.Fatal(err)
+	}
+	gone := project.Project{Name: "gone", Root: f.p.Root, Windows: f.p.Windows, Worktrees: &project.Worktrees{Source: "treehouse", Count: 1}}
+	if _, err := f.m.Start(gone, StartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.m.Tmux.KillSession("gone"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := f.m.Workspaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != "gone,proj" {
+		t.Fatalf("want gone,proj (external left out), got %v", got)
+	}
+	for _, name := range got {
+		if err := f.m.Stop(name, StopOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if left := f.leased(); len(left) != 0 {
+		t.Errorf("worktrees still leased: %v", left)
+	}
+	if !f.m.Tmux.HasSession("external") {
+		t.Error("external session was stopped")
+	}
+}
