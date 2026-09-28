@@ -16,6 +16,7 @@ ws stop [target]        kill it, run on_stop, return its worktrees
 ws ls                   projects, state and leased worktrees
 ws capture --as NAME    save the current session as a layout
 ws import FILE          convert a tmuxinator project
+ws init                 create ~/.config/ws with a starter config
 ws new NAME / ws edit NAME
 ws check                validate every project and layout
 ```
@@ -45,7 +46,8 @@ bind f display-popup -E -w 70% -h 60% "ws"
 
 ## Config
 
-Everything lives in `~/.config/ws` (or `$WS_CONFIG_DIR`):
+Everything lives in `~/.config/ws` (or `$WS_CONFIG_DIR`). `ws init` creates
+it with a commented `config.yaml` and `layouts/default.yaml`:
 
 ```
 config.yaml           settings, optional

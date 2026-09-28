@@ -35,6 +35,7 @@ Config lives in ~/.config/ws (projects/, layouts/, config.yaml).`,
 		RunE:         runPicker,
 	}
 	cmd.AddCommand(
+		initCmd(),
 		startCmd(),
 		stopCmd(),
 		lsCmd(),
