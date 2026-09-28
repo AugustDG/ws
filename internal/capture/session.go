@@ -10,7 +10,8 @@ import (
 )
 
 // FromSession reads a running session's windows and its start directory.
-// Each pane records as much of its foreground program as commands asks for.
+// Each pane records as much of its foreground program as commands asks for,
+// preferring the line as typed when the shell-init hook recorded one.
 func FromSession(c *tmux.Client, session string, commands Commands) ([]Window, string, error) {
 	target := tmux.Exact(session)
 	root, err := c.Run("display-message", "-p", "-t", target, "#{session_path}")
@@ -18,19 +19,20 @@ func FromSession(c *tmux.Client, session string, commands Commands) ([]Window, s
 		return nil, "", err
 	}
 
-	panes, err := c.Lines("list-panes", "-s", "-t", target, "-F", "#{pane_id}\t#{pane_current_path}\t#{pane_active}\t#{pane_pid}")
+	panes, err := c.Lines("list-panes", "-s", "-t", target, "-F", "#{pane_id}\t#{pane_current_path}\t#{pane_active}\t#{pane_pid}\t#{"+tmux.TypedCommandOption+"}")
 	if err != nil {
 		return nil, "", err
 	}
 	byID := map[int]Pane{}
 	for _, p := range panes {
 		id, err := strconv.Atoi(strings.TrimPrefix(p[0], "%"))
-		if err != nil || len(p) < 4 {
+		if err != nil || len(p) < 5 {
 			continue
 		}
 		pane := Pane{Dir: p[1], Active: p[2] == "1"}
+		typed := strings.Join(p[4:], "\t") // the typed line may itself hold tabs
 		if pid, err := strconv.Atoi(p[3]); err == nil {
-			if cmd := Foreground(pid, commands); cmd != "" {
+			if cmd := paneCommand(pid, typed, commands); cmd != "" {
 				pane.Cmds = []string{cmd}
 			}
 		}

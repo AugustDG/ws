@@ -96,6 +96,10 @@ type Session struct {
 // so they can be told apart from ones started some other way.
 const ManagedOption = "@ws"
 
+// TypedCommandOption is the pane user option the `ws shell-init` hook sets
+// to each command line as typed, just before it runs.
+const TypedCommandOption = "@ws_cmd"
+
 // MarkManaged sets ManagedOption on the session that target belongs to.
 func (c *Client) MarkManaged(target string) error {
 	_, err := c.Run("set-option", "-t", target, ManagedOption, "1")

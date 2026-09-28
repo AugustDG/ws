@@ -19,6 +19,7 @@ ws import FILE          convert a tmuxinator project
 ws init                 create ~/.config/ws with a starter config
 ws new NAME / ws edit NAME
 ws check                validate every project and layout
+ws shell-init SHELL     shell hook so capture sees commands as typed
 ```
 
 `target` is a project name, a directory, a running session or a zoxide query,
@@ -154,10 +155,20 @@ default_layout: default   # layout for directories and projects that name none
   Output goes to `~/.local/state/ws/stop.log`.
 - `capture --with-execs` saves each pane's foreground program as its `cmd`
   (`claude`, `bun`), and `--with-args` keeps the arguments (`bun run bench`).
-  Paths to programs on PATH are shortened to their names. Commands are typed
-  into the pane's shell on start, so aliases work. Arguments that contained
-  spaces come back unquoted. Check captured args for secrets before
-  committing a layout.
+  Commands are typed into the pane's shell on start, so aliases work. Check
+  captured args for secrets before committing a layout.
+- Without the shell hook, capture only sees the running process: an alias
+  shows as what it expands to, `KEY=val cmd` loses its prefix, and quoted
+  arguments come back unquoted. With it, capture replays the line exactly as
+  typed:
+
+  ```bash
+  eval "$(ws shell-init zsh)"    # in ~/.zshrc
+  eval "$(ws shell-init bash)"   # in ~/.bashrc; needs bash 4.4+ or bash-preexec
+  ```
+
+  The hook sets the pane option `@ws_cmd` before each command. Capture only
+  uses it while that pane is running something, so an idle pane stays idle.
 - `capture` and `import` turn columns or rows that repeat across worktrees of
   one repo into `for_each: worktree`, set the project root to the main
   checkout and infer the source (`treehouse` for pool paths, else `git`).

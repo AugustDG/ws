@@ -107,3 +107,83 @@ func isIdleShell(fields []string) bool {
 	}
 	return true
 }
+
+// paneCommand is what a pane should replay. Foreground decides whether
+// anything is running (and rules out idle shells and ws's own job); when
+// something is and the shell-init hook recorded the typed line, that line
+// wins, since it keeps aliases, env prefixes and quoting.
+func paneCommand(panePID int, typed string, mode Commands) string {
+	running := Foreground(panePID, mode)
+	typed = strings.TrimSpace(typed)
+	if running == "" || typed == "" {
+		return running
+	}
+	if mode == ExecsOnly {
+		if name := programOf(typed); name != "" {
+			return name
+		}
+		return running
+	}
+	return typed
+}
+
+// programOf returns the program a typed line runs: its first word after
+// any `KEY=val` assignments and an `env` prefix with its own assignments.
+// Quotes are respected when splitting words.
+func programOf(line string) string {
+	words := shellWords(line)
+	for len(words) > 0 && (isAssignment(words[0]) || words[0] == "env") {
+		words = words[1:]
+	}
+	if len(words) == 0 {
+		return ""
+	}
+	return words[0]
+}
+
+func isAssignment(word string) bool {
+	name, _, ok := strings.Cut(word, "=")
+	if !ok || name == "" {
+		return false
+	}
+	for i, r := range name {
+		if !(r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || i > 0 && r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
+// shellWords splits a command line on unquoted whitespace, keeping quotes
+// in the words. It's only used to find word boundaries.
+func shellWords(line string) []string {
+	var words []string
+	var cur strings.Builder
+	var quote rune
+	escaped := false
+	for _, r := range line {
+		switch {
+		case escaped:
+			escaped = false
+		case r == '\\' && quote != '\'':
+			escaped = true
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			}
+		case r == '\'' || r == '"':
+			quote = r
+		case r == ' ' || r == '\t' || r == '\n':
+			if cur.Len() > 0 {
+				words = append(words, cur.String())
+				cur.Reset()
+			}
+			continue
+		}
+		cur.WriteRune(r)
+	}
+	if cur.Len() > 0 {
+		words = append(words, cur.String())
+	}
+	return words
+}
