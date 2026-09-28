@@ -17,7 +17,7 @@ ws ls                   projects, state and leased worktrees
 ws capture --as NAME    save the current session as a layout
 ws import FILE          convert a tmuxinator project
 ws init                 create ~/.config/ws with a starter config
-ws new NAME / ws edit NAME
+ws new NAME / ws edit NAME / ws rm NAME
 ws check                validate every project and layout
 ws shell-init SHELL     shell hook so capture sees commands as typed
 ```
