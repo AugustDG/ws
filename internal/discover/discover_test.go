@@ -9,7 +9,7 @@ func static(items ...Item) Source {
 func TestCollect(t *testing.T) {
 	got := Collect(
 		static(
-			Item{Name: "api", Path: "/p/api", Kind: Session, Running: true},
+			Item{Name: "api", Path: "/p/api", Kind: Session, Running: true, External: true},
 			Item{Name: "scratch", Path: "/tmp", Kind: Session, Running: true},
 		),
 		static(
@@ -19,7 +19,7 @@ func TestCollect(t *testing.T) {
 	)
 
 	want := []Item{
-		{Name: "api", Path: "/p/api", Kind: Project, Running: true},
+		{Name: "api", Path: "/p/api", Kind: Project, Running: true, External: true},
 		{Name: "scratch", Path: "/tmp", Kind: Session, Running: true},
 		{Name: "web", Path: "/p/web", Kind: Project},
 	}

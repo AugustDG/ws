@@ -138,6 +138,10 @@ default_layout: default   # layout for directories and projects that name none
 
 - `start` on a running session only adds windows it's missing, matched by
   name. It never rearranges existing ones.
+- Sessions ws creates carry the tmux user option `@ws`. Running sessions
+  without it (started by hand or by tmuxinator) show as `external` in
+  yellow in `ws ls` and the picker. They have no leased worktrees, so
+  WORKTREES stays empty until the project is restarted with ws.
 - A new session is created at the current terminal size so percentage splits
   land where they should before you attach.
 - A directory without a project file is named after its basename. If that

@@ -75,6 +75,10 @@ func (e *Engine) create(s Session) error {
 	if err != nil {
 		return err
 	}
+	if err := e.Tmux.MarkManaged(pane); err != nil {
+		e.Tmux.KillSession(s.Name)
+		return err
+	}
 
 	// Windows are targeted through a pane id from here on: names can hold
 	// "." or ":", which tmux would read as pane or session separators.

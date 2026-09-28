@@ -93,6 +93,9 @@ windows:
 	if !res.Created {
 		t.Error("expected a new session")
 	}
+	if sessions, _ := c.Sessions(); len(sessions) != 1 || !sessions[0].Managed {
+		t.Errorf("session not marked as ws-managed: %+v", sessions)
+	}
 
 	names, _ := c.WindowNames("grid")
 	if !slices.Equal(names, []string{"code", "misc"}) {

@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"strings"
-	"text/tabwriter"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
+
+	"github.com/AugustDG/ws/internal/ui"
 )
 
 func lsCmd() *cobra.Command {
@@ -14,7 +15,9 @@ func lsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "ls",
 		Short: "List projects and running sessions",
-		Args:  cobra.NoArgs,
+		Long: `List projects and running sessions. STATE is running, external (a
+running session ws didn't start, so it has no leased worktrees) or stopped.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := newApp()
 			if err != nil {
@@ -33,13 +36,8 @@ func lsCmd() *cobra.Command {
 				}
 				return nil
 			}
-			tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "NAME\tSTATE\tKIND\tROOT\tWORKTREES")
+			rows := [][]string{{"NAME", "STATE", "KIND", "ROOT", "WORKTREES"}}
 			for _, it := range items {
-				state := "stopped"
-				if it.Running {
-					state = "running"
-				}
 				var wts []string
 				leases, err := a.mgr.Leases(it.Name)
 				if err != nil {
@@ -48,13 +46,42 @@ func lsCmd() *cobra.Command {
 				for _, l := range leases {
 					wts = append(wts, a.cfg.AbbrevHome(l.Path))
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", it.Name, state, it.Kind,
-					a.cfg.AbbrevHome(it.Path), strings.Join(wts, ", "))
+				rows = append(rows, []string{
+					it.Name,
+					ui.StateStyle(it).Render(ui.State(it)),
+					it.Kind.String(),
+					a.cfg.AbbrevHome(it.Path),
+					strings.Join(wts, ", "),
+				})
 			}
-			return tw.Flush()
+			fmt.Print(table(rows))
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&plain, "plain", false, "print names only, for scripts and fzf")
 	cmd.Flags().BoolVar(&layouts, "layouts", false, "list layout templates instead")
 	return cmd
+}
+
+// table aligns rows into columns. Widths are measured without color codes,
+// which text/tabwriter would count as characters.
+func table(rows [][]string) string {
+	widths := make([]int, len(rows[0]))
+	for _, r := range rows {
+		for i, cell := range r {
+			widths[i] = max(widths[i], lipgloss.Width(cell))
+		}
+	}
+	var b strings.Builder
+	for _, r := range rows {
+		for i, cell := range r {
+			if i == len(r)-1 {
+				b.WriteString(cell)
+				break
+			}
+			b.WriteString(cell + strings.Repeat(" ", widths[i]-lipgloss.Width(cell)+2))
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
 }

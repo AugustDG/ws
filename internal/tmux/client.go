@@ -89,19 +89,31 @@ type Session struct {
 	Path     string
 	Windows  string
 	Attached bool
+	Managed  bool // created by ws, see ManagedOption
+}
+
+// ManagedOption is the session user option ws sets on sessions it creates,
+// so they can be told apart from ones started some other way.
+const ManagedOption = "@ws"
+
+// MarkManaged sets ManagedOption on the session that target belongs to.
+func (c *Client) MarkManaged(target string) error {
+	_, err := c.Run("set-option", "-t", target, ManagedOption, "1")
+	return err
 }
 
 func (c *Client) Sessions() ([]Session, error) {
-	rows, err := c.Lines("list-sessions", "-F", "#{session_name}\t#{session_path}\t#{session_windows}\t#{session_attached}")
+	rows, err := c.Lines("list-sessions", "-F",
+		"#{session_name}\t#{session_path}\t#{session_windows}\t#{session_attached}\t#{"+ManagedOption+"}")
 	if err != nil {
 		return nil, err
 	}
 	var out []Session
 	for _, r := range rows {
-		if len(r) < 4 {
+		if len(r) < 5 {
 			continue
 		}
-		out = append(out, Session{Name: r[0], Path: r[1], Windows: r[2], Attached: r[3] != "0"})
+		out = append(out, Session{Name: r[0], Path: r[1], Windows: r[2], Attached: r[3] != "0", Managed: r[4] == "1"})
 	}
 	return out, nil
 }

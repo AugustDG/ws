@@ -25,10 +25,11 @@ func (k Kind) String() string {
 
 // Item is one picker entry.
 type Item struct {
-	Name    string
-	Path    string
-	Kind    Kind
-	Running bool
+	Name     string
+	Path     string
+	Kind     Kind
+	Running  bool
+	External bool // running, but not started by ws
 }
 
 // Source produces items. Errors are ignored by Collect so one broken
@@ -46,6 +47,7 @@ func Collect(sources ...Source) []Item {
 		for _, it := range found {
 			if i, ok := byName[it.Name]; ok {
 				items[i].Running = items[i].Running || it.Running
+				items[i].External = items[i].External || it.External
 				if it.Kind == Project {
 					items[i].Kind, items[i].Path = Project, it.Path
 				}
@@ -65,7 +67,7 @@ func Sessions(c *tmux.Client) Source {
 		sessions, err := c.Sessions()
 		var out []Item
 		for _, s := range sessions {
-			out = append(out, Item{Name: s.Name, Path: s.Path, Kind: Session, Running: true})
+			out = append(out, Item{Name: s.Name, Path: s.Path, Kind: Session, Running: true, External: !s.Managed})
 		}
 		return out, err
 	}
