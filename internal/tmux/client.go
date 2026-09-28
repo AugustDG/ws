@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // Client runs tmux commands. Socket, when set, selects a named server (-L).
@@ -89,7 +91,8 @@ type Session struct {
 	Path     string
 	Windows  string
 	Attached bool
-	Managed  bool // created by ws, see ManagedOption
+	Managed  bool      // created by ws, see ManagedOption
+	LastUsed time.Time // when a client last attached; zero if never
 }
 
 // ManagedOption is the session user option ws sets on sessions it creates,
@@ -108,16 +111,20 @@ func (c *Client) MarkManaged(target string) error {
 
 func (c *Client) Sessions() ([]Session, error) {
 	rows, err := c.Lines("list-sessions", "-F",
-		"#{session_name}\t#{session_path}\t#{session_windows}\t#{session_attached}\t#{"+ManagedOption+"}")
+		"#{session_name}\t#{session_path}\t#{session_windows}\t#{session_attached}\t#{"+ManagedOption+"}\t#{session_last_attached}")
 	if err != nil {
 		return nil, err
 	}
 	var out []Session
 	for _, r := range rows {
-		if len(r) < 5 {
+		if len(r) < 6 {
 			continue
 		}
-		out = append(out, Session{Name: r[0], Path: r[1], Windows: r[2], Attached: r[3] != "0", Managed: r[4] == "1"})
+		s := Session{Name: r[0], Path: r[1], Windows: r[2], Attached: r[3] != "0", Managed: r[4] == "1"}
+		if sec, err := strconv.ParseInt(r[5], 10, 64); err == nil && sec > 0 {
+			s.LastUsed = time.Unix(sec, 0)
+		}
+		out = append(out, s)
 	}
 	return out, nil
 }

@@ -6,8 +6,6 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-
-	"github.com/AugustDG/ws/internal/state"
 )
 
 func lastCmd() *cobra.Command {
@@ -32,14 +30,14 @@ didn't start are never recorded.`,
 			if record != "" {
 				return a.recordLast(record)
 			}
-			last, ok, err := a.mgr.State.LoadLast()
+			name, use, ok, err := a.mgr.State.Last()
 			if err != nil {
 				return err
 			}
 			if !ok {
 				return errors.New("no workspace recorded yet")
 			}
-			fmt.Println(a.lastTarget(last))
+			fmt.Println(a.lastTarget(name, use.Root))
 			return nil
 		},
 	}
@@ -48,21 +46,21 @@ didn't start are never recorded.`,
 	return cmd
 }
 
-// recordLast saves session as the last workspace if ws started it.
+// recordLast stamps session as used now, if ws started it.
 func (a *app) recordLast(session string) error {
 	s, ok, err := a.tmux.Session(session)
 	if err != nil || !ok || !s.Managed {
 		return err
 	}
-	return a.mgr.State.SaveLast(state.Last{Name: s.Name, Root: s.Path})
+	return a.mgr.State.RecordUse(s.Name, s.Path)
 }
 
 // lastTarget is the argument ws start needs to reopen last. A session
 // without a project file is only a name while it runs, so after that it's
 // reopened by its directory.
-func (a *app) lastTarget(last state.Last) string {
-	if _, err := os.Stat(a.cfg.ProjectFile(last.Name)); err == nil || last.Root == "" {
-		return last.Name
+func (a *app) lastTarget(name, root string) string {
+	if _, err := os.Stat(a.cfg.ProjectFile(name)); err == nil || root == "" {
+		return name
 	}
-	return last.Root
+	return root
 }

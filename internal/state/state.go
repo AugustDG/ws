@@ -1,6 +1,6 @@
 // Package state persists what ws needs across runs: what it acquired for
-// each session, so stop can give back exactly that, and the workspace a
-// client was last in.
+// each session, so stop can give back exactly that, and when each
+// workspace was last used.
 package state
 
 import (
@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/AugustDG/ws/internal/worktree"
 )
@@ -109,26 +111,59 @@ func (s Store) Names() ([]string, error) {
 	return names, nil
 }
 
-// Last is the workspace a tmux client was most recently in.
-type Last struct {
-	Name string `json:"name"`
-	Root string `json:"root,omitempty"`
+// Use is when a client was last in a workspace, and where it was rooted.
+type Use struct {
+	Root string    `json:"root,omitempty"`
+	At   time.Time `json:"at"`
 }
 
-// lastPath has no .json extension so Names doesn't list it as a session.
-func (s Store) lastPath() string { return filepath.Join(s.Dir, "last") }
+// usedPath has no .json extension so Names doesn't list it as a session.
+func (s Store) usedPath() string { return filepath.Join(s.Dir, "used") }
 
-func (s Store) SaveLast(l Last) error { return s.write(s.lastPath(), l) }
-
-// LoadLast returns the last workspace, and false if none is recorded.
-func (s Store) LoadLast() (Last, bool, error) {
-	var l Last
-	data, err := os.ReadFile(s.lastPath())
+// Used returns when each workspace was last used, by session name.
+func (s Store) Used() (map[string]Use, error) {
+	used := map[string]Use{}
+	data, err := os.ReadFile(s.usedPath())
 	if errors.Is(err, os.ErrNotExist) {
-		return l, false, nil
+		return used, nil
 	}
 	if err != nil {
-		return l, false, err
+		return nil, err
 	}
-	return l, true, json.Unmarshal(data, &l)
+	return used, json.Unmarshal(data, &used)
+}
+
+// RecordUse stamps name as used now. tmux hooks can record at the same
+// moment, so the read-modify-write holds a lock.
+func (s Store) RecordUse(name, root string) error {
+	if err := os.MkdirAll(s.Dir, 0o755); err != nil {
+		return err
+	}
+	lock, err := os.OpenFile(s.usedPath()+".lock", os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		return err
+	}
+	used, err := s.Used()
+	if err != nil {
+		return err
+	}
+	used[name] = Use{Root: root, At: time.Now()}
+	return s.write(s.usedPath(), used)
+}
+
+// Last returns the most recently used workspace, and false if none is.
+func (s Store) Last() (string, Use, bool, error) {
+	used, err := s.Used()
+	var name string
+	var last Use
+	for n, u := range used {
+		if u.At.After(last.At) {
+			name, last = n, u
+		}
+	}
+	return name, last, name != "", err
 }

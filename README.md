@@ -10,7 +10,7 @@ treehouse pool, leased when the
 session starts and returned when it stops.
 
 ```
-ws                      picker: running sessions and projects
+ws                      picker: sessions and projects, most recently used first
 ws start [target]       start (or top up) a session and attach
 ws stop [target]        kill it, run on_stop, return its worktrees
 ws stop --all           stop every session ws started
@@ -174,12 +174,14 @@ default_layout: default   # layout for directories and projects that name none
 - `ws stop` from inside the session it's stopping hands the work to the tmux
   server (`run-shell -b`), since killing the session would kill `ws` first.
   Output goes to `~/.local/state/ws/stop.log`.
-- `ws last` prints the workspace a tmux client was last in, as a project
-  name, or its directory when it has no project file. `ws start` sets tmux
-  hooks (`client-attached[77]`, `client-session-changed[77]`) that keep
-  the record in `~/.local/state/ws/last` current, so it survives a tmux
-  restart. A terminal can open straight into it with
-  `ws start "$(ws last)" || tmux new-session -A -s main`.
+- `ws start` sets tmux hooks (`client-attached[77]`,
+  `client-session-changed[77]`) that stamp each ws session when a client
+  attaches or switches to it, in `~/.local/state/ws/used`. The record
+  survives tmux restarts. The picker sorts by it (and by tmux's own
+  last-attached time), newest first, and leaves out the session you're in.
+- `ws last` prints the most recently used workspace, as a project name, or
+  its directory when it has no project file. A terminal can open straight
+  into it with `ws start "$(ws last)" || exec zsh -l`.
 - `ws stop --all` skips sessions ws didn't start, and also returns
   worktrees recorded for sessions that are already gone. To shut tmux down
   completely, follow it with `tmux kill-server`.
