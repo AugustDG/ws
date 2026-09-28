@@ -38,12 +38,6 @@ curl -fsSL -o ~/.local/bin/ws \
   && chmod +x ~/.local/bin/ws
 ```
 
-Or build it with Go:
-
-```bash
-go install github.com/AugustDG/ws/cmd/ws@latest
-```
-
 ### Shell completion
 
 `ws completion <zsh|bash|fish>` prints a completion script. Project,

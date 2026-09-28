@@ -8,6 +8,21 @@ import (
 	"github.com/AugustDG/ws/internal/project"
 )
 
+const nextSteps = `
+Next:
+  ws start                      open this directory with the default layout
+  ws capture --project NAME     save the session you're in as projects/NAME.yaml
+  ws                            pick a project or session to open
+
+Optional:
+  ws completion zsh > "${fpath[1]}/_ws"
+      shell completion (bash and fish work too)
+  eval "$(ws shell-init zsh)"
+      in ~/.zshrc, so capture records commands as typed
+  bind f display-popup -E -w 70% -h 60% "ws"
+      in tmux.conf, the picker in a popup
+`
+
 func initCmd() *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
@@ -29,7 +44,11 @@ left alone unless --force is given.`,
 			for _, p := range res.Skipped {
 				fmt.Println("kept ", cfg.AbbrevHome(p), "(exists; --force to overwrite)")
 			}
-			return err
+			if err != nil {
+				return err
+			}
+			fmt.Print(nextSteps)
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "overwrite existing files")
