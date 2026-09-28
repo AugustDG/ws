@@ -36,8 +36,11 @@ type Pane struct {
 type Options struct {
 	Root       string // dirs under it become relative
 	Home       string
-	Generalize bool     // detect worktree repeats
-	Repo       RepoFunc // looks up a dir's repo; defaults to git
+	Generalize bool // detect worktree repeats
+	// KeepCommands only generalizes repeats whose copies all run the same
+	// commands, so no command is ever dropped from the template.
+	KeepCommands bool
+	Repo         RepoFunc // looks up a dir's repo; defaults to git
 }
 
 // Result is the templatized form.
@@ -62,6 +65,9 @@ func Templatize(windows []Window, opts Options) Result {
 		if opts.Generalize {
 			if g, ok := generalize(lw.Node, opts); ok {
 				switch {
+				case opts.KeepCommands && len(g.dropped) > 0:
+					res.Notes = append(res.Notes, fmt.Sprintf(
+						"window %s repeats across worktrees, but they run different commands; kept as captured so none are dropped", w.Name))
 				case res.Worktrees == nil:
 					res.Root, res.Worktrees = g.main, &g.worktrees
 					fallthrough

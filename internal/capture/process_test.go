@@ -126,3 +126,27 @@ func TestCommonDir(t *testing.T) {
 		t.Errorf("disjoint dirs: got %q", got)
 	}
 }
+
+func TestKeepCommandsOnlyGeneralizesUniformRepeats(t *testing.T) {
+	opts := Options{Root: home, Home: home, Generalize: true, KeepCommands: true, Repo: fakeRepo}
+
+	differing := gridWindows(t)
+	differing[0].Panes[0].Cmds = []string{"claude"}
+	res := Templatize(differing, opts)
+	if res.Worktrees != nil || res.Windows[0].Columns[0].ForEach != "" {
+		t.Error("differing commands should keep the window concrete")
+	}
+	if got := res.Windows[0].Columns[0].Rows[0].Cmd; len(got) != 1 || got[0] != "claude" {
+		t.Errorf("command lost: %v", got)
+	}
+
+	uniform := gridWindows(t)
+	for i := range uniform[0].Panes {
+		uniform[0].Panes[i].Cmds = []string{"nvim ."}
+	}
+	res = Templatize(uniform, opts)
+	tmpl := res.Windows[0].Columns[0]
+	if tmpl.ForEach == "" || tmpl.Rows[0].Cmd[0] != "nvim ." {
+		t.Errorf("uniform commands should still generalize: %+v", tmpl)
+	}
+}

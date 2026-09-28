@@ -162,8 +162,9 @@ default_layout: default   # layout for directories and projects that name none
   one repo into `for_each: worktree`, set the project root to the main
   checkout and infer the source (`treehouse` for pool paths, else `git`).
   `--no-generalize` keeps them concrete. When the copies run different
-  commands, the template keeps the ones they share and the rest are listed
-  on stderr. A later window that repeats over
+  commands, `--with-execs` keeps the ones they share and lists the rest on
+  stderr, while `--with-args` keeps the window concrete so nothing is
+  dropped. A later window that repeats over
   different worktrees than the first stays concrete too.
 - `$WS_TMUX_SOCKET` points ws at a named tmux server (`tmux -L`), and
   `$WS_STATE_DIR` overrides the state directory.

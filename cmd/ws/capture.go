@@ -39,10 +39,12 @@ under the session root become relative, and columns or rows that repeat
 across a repo's worktrees become for_each: worktree.
 
 With --with-execs, each pane's foreground program is saved as its cmd so it
-starts again with the session; --with-args keeps its arguments too. Commands
-are typed into the pane's shell, so aliases and PATH work. Worktree copies
-that ran different programs keep only the commands they share, and the rest
-are listed on stderr.
+starts again with the session. Commands are typed into the pane's shell, so
+aliases and PATH work. Worktree copies that ran different programs keep only
+the commands they share, and the rest are listed on stderr.
+
+--with-args keeps arguments too, and never drops a command: a window is only
+written as for_each: worktree when every copy runs the same thing.
 
 Prints YAML unless --as or --project says where to write it.`,
 		Args: cobra.NoArgs,
@@ -68,7 +70,7 @@ Prints YAML unless --as or --project says where to write it.`,
 				return err
 			}
 			res := capture.Templatize(windows, capture.Options{
-				Root: root, Home: a.cfg.Home, Generalize: !flags.noGeneral,
+				Root: root, Home: a.cfg.Home, Generalize: !flags.noGeneral, KeepCommands: withArgs,
 			})
 			return a.save(res, flags, project.Project{})
 		},
