@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -27,7 +28,18 @@ func TestLink(t *testing.T) {
 	}
 	path := filepath.Join(sockDir(t), "l.sock")
 	var pushed []discover.Item
-	link, err := Listen(path, func() []discover.Item { return items }, func(it []discover.Item) { pushed = it })
+	var stopped string
+	link, err := Listen(path, Handlers{
+		Items: func() []discover.Item { return items },
+		Push:  func(it []discover.Item) { pushed = it },
+		Stop: func(it discover.Item) error {
+			if it.Name == "busy" {
+				return errors.New("can't stop busy")
+			}
+			stopped = it.Name
+			return nil
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,6 +70,12 @@ func TestLink(t *testing.T) {
 	}
 	if len(pushed) != 1 || pushed[0].Name != "srv" {
 		t.Errorf("pushed %+v", pushed)
+	}
+	if err := LinkStop(path, got[0]); err != nil || stopped != "api" {
+		t.Errorf("stop: %v, stopped %q", err, stopped)
+	}
+	if err := LinkStop(path, discover.Item{Name: "busy"}); err == nil || err.Error() != "can't stop busy" {
+		t.Errorf("stop error came back as %v", err)
 	}
 	link.Close()
 	if _, err := LinkItems(path); err == nil {

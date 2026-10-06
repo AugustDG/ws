@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"slices"
 	"time"
@@ -34,7 +35,7 @@ func runPicker(_ *cobra.Command, _ []string) error {
 		case picker.Open:
 			return a.open(choice.Item)
 		case picker.Stop:
-			if err := a.mgr.Stop(choice.Item.Name, workspace.StopOptions{}); err != nil {
+			if err := a.stop(choice.Item); err != nil {
 				return err
 			}
 		default:
@@ -127,6 +128,24 @@ func (a *app) pickerItems() []discover.Item {
 	}
 	it := items[i]
 	return append(slices.Delete(items, i, i+1), it)
+}
+
+// stop stops a session wherever it runs: here, on the machine this host
+// was reached from (over the link), or on a host (over ssh). A host's
+// header stops every session ws started there, once confirmed.
+func (a *app) stop(it discover.Item) error {
+	switch {
+	case it.Here():
+		return a.mgr.Stop(it.Name, workspace.StopOptions{})
+	case it.Via != "":
+		return remote.LinkStop(remote.LinkPath(a.mgr.State.Dir), it)
+	case it.Kind == discover.Host:
+		if confirm(fmt.Sprintf("stop every ws session on %s?", it.Host)) != nil {
+			return nil // declined: back to the picker
+		}
+		return a.stopOnHost(it.Host, "", true)
+	}
+	return a.stopOnHost(it.Host, it.Name, false)
 }
 
 // open attaches to a running item, starting a stopped project first. A

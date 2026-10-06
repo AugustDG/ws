@@ -1,6 +1,7 @@
 package picker
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -87,13 +88,26 @@ func TestGroups(t *testing.T) {
 	}
 }
 
-func TestStopOnlyHere(t *testing.T) {
-	items := []discover.Item{
-		{Name: "api", Kind: discover.Session, Running: true, Machine: "box", Host: "box"},
+func TestStoppable(t *testing.T) {
+	cases := []struct {
+		it   discover.Item
+		want bool
+	}{
+		{discover.Item{Name: "here", Kind: discover.Session, Running: true}, true},
+		{discover.Item{Name: "idle", Kind: discover.Project}, false},
+		{discover.Item{Name: "on host", Kind: discover.Session, Running: true, Machine: "box", Host: "box", Cached: true}, true},
+		{discover.Item{Name: "via link", Kind: discover.Session, Running: true, Machine: "local", Via: "local"}, true},
+		{discover.Item{Name: "third", Kind: discover.Session, Running: true, Machine: "pi", Via: "local"}, false},
+		{discover.Item{Name: "box", Kind: discover.Host, Machine: "box", Host: "box"}, true},
+		{discover.Item{Name: "local", Kind: discover.Host, Machine: "local", Via: "local"}, false},
 	}
-	m := newModel(items, func(s string) string { return s }, Options{})
-	if _, cmd := m.choose(Stop); cmd != nil {
-		t.Error("stopped another machine's session")
+	for _, tc := range cases {
+		m := newModel([]discover.Item{tc.it}, func(s string) string { return s }, Options{})
+		m.cursor = slices.IndexFunc(m.rows, func(r row) bool { return r.selectable() })
+		_, cmd := m.choose(Stop)
+		if got := cmd != nil; got != tc.want {
+			t.Errorf("%s: stop allowed = %v, want %v", tc.it.Name, got, tc.want)
+		}
 	}
 }
 

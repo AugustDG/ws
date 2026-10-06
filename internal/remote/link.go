@@ -37,7 +37,7 @@ func newLinkPath() string {
 }
 
 type linkRequest struct {
-	Op    string          `json:"op"` // "items", "open" or "push"
+	Op    string          `json:"op"` // "items", "open", "push" or "stop"
 	Item  *discover.Item  `json:"item,omitempty"`
 	Items []discover.Item `json:"items,omitempty"`
 }
@@ -47,26 +47,31 @@ type linkResponse struct {
 	Error string          `json:"error,omitempty"`
 }
 
+// Handlers answer the host's requests on the machine ws ssh runs on.
+type Handlers struct {
+	Items func() []discover.Item    // this machine's items, for the host's picker
+	Push  func([]discover.Item)     // the host's own items, reported
+	Stop  func(discover.Item) error // stop one of this machine's sessions
+}
+
 // Link is the end of the link on the machine ws ssh runs on.
 type Link struct {
 	Path string
 
-	items  func() []discover.Item
-	push   func([]discover.Item)
+	h      Handlers
 	ln     net.Listener
 	mu     sync.Mutex
 	chosen *discover.Item
 }
 
-// Listen serves items at path until Close, and hands what the host
-// pushes of its own workspaces to push.
-func Listen(path string, items func() []discover.Item, push func([]discover.Item)) (*Link, error) {
+// Listen serves the host's requests at path with h until Close.
+func Listen(path string, h Handlers) (*Link, error) {
 	_ = os.Remove(path)
 	ln, err := net.Listen("unix", path)
 	if err != nil {
 		return nil, err
 	}
-	l := &Link{Path: path, items: items, push: push, ln: ln}
+	l := &Link{Path: path, h: h, ln: ln}
 	go l.serve()
 	return l, nil
 }
@@ -91,13 +96,17 @@ func (l *Link) handle(conn net.Conn) {
 	var resp linkResponse
 	switch {
 	case req.Op == "items":
-		resp.Items = l.items()
+		resp.Items = l.h.Items()
 	case req.Op == "open" && req.Item != nil:
 		l.mu.Lock()
 		l.chosen = req.Item
 		l.mu.Unlock()
 	case req.Op == "push":
-		l.push(req.Items)
+		l.h.Push(req.Items)
+	case req.Op == "stop" && req.Item != nil:
+		if err := l.h.Stop(*req.Item); err != nil {
+			resp.Error = err.Error()
+		}
 	default:
 		resp.Error = fmt.Sprintf("unknown request %q", req.Op)
 	}
@@ -179,6 +188,13 @@ func LinkOpen(path string, it discover.Item) error {
 		it.Machine = ""
 	}
 	_, err := call(path, linkRequest{Op: "open", Item: &it})
+	return err
+}
+
+// LinkStop asks the machine at the other end to stop one of its sessions.
+func LinkStop(path string, it discover.Item) error {
+	it.Via, it.Machine = "", ""
+	_, err := call(path, linkRequest{Op: "stop", Item: &it})
 	return err
 }
 

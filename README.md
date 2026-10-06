@@ -179,6 +179,10 @@ HOST. `HOST` is anything `ssh` accepts, aliases in `~/.ssh/config` included
   Once you type, the groups give way to one list ranked by how well each
   item matches, wherever it lives; each row names its machine in that
   machine's color.
+- `ctrl-x` stops a session wherever it runs: a host's over ssh (which also
+  refreshes that host's list), or, on a host, the connecting machine's
+  over the link. On a host's header it stops every session ws started
+  there (`ws stop --all`, so sessions started by hand stay), after asking.
 - A host's items are what it last reported. While you're connected, the
   host reports its sessions and projects whenever one is created, closed
   or switched to, and the header says when that was (`seen 4m ago`).

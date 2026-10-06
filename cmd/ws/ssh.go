@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/AugustDG/ws/internal/discover"
 	"github.com/AugustDG/ws/internal/remote"
 	"github.com/AugustDG/ws/internal/tmux"
+	"github.com/AugustDG/ws/internal/workspace"
 )
 
 func sshCmd() *cobra.Command {
@@ -59,7 +61,7 @@ ws ssh setup HOST installs tmux and ws on HOST and copies your config.`,
 	cmd.Flags().StringVar(&returnTo, "return-to", "", "internal: session to reattach afterwards")
 	_ = cmd.Flags().MarkHidden("from-tmux")
 	_ = cmd.Flags().MarkHidden("return-to")
-	cmd.AddCommand(sshSetupCmd(), sshPushCmd())
+	cmd.AddCommand(sshSetupCmd(), sshPushCmd(), sshReportCmd())
 	return cmd
 }
 
@@ -135,7 +137,10 @@ func (a *app) listenLink(host string) *remote.Link {
 	push := func(items []discover.Item) {
 		_ = a.mgr.State.SaveHostItems(host, items)
 	}
-	link, err := remote.Listen(path, items, push)
+	stop := func(it discover.Item) error {
+		return a.mgr.Stop(it.Name, workspace.StopOptions{})
+	}
+	link, err := remote.Listen(path, remote.Handlers{Items: items, Push: push, Stop: stop})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ws ssh: the host's picker won't list this machine: %v\n", err)
 		return nil
@@ -216,6 +221,50 @@ func sshPushCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// sshReportCmd prints this host's workspaces as JSON, for a machine that
+// changed something here over ssh and wants its picker current.
+func sshReportCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "report",
+		Short:  "internal: print this host's workspaces as JSON",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := newApp()
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(os.Stdout).Encode(a.here())
+		},
+	}
+}
+
+// stopOnHost stops a session on another host over ssh, or with all,
+// every session ws started there. It saves the host's report that comes
+// back, so the picker shows the result.
+func (a *app) stopOnHost(host, name string, all bool) error {
+	dir := filepath.Join(a.mgr.State.Dir, "ssh")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	sh := &remote.Shell{Host: host, ControlDir: dir}
+	defer sh.Close()
+	stop, what := "ws stop -- "+tmux.Quote(name), name
+	if all {
+		stop, what = "ws stop --all", "every ws session"
+	}
+	fmt.Fprintf(os.Stderr, "stopping %s on %s\n", what, host)
+	out, err := sh.Output(`PATH="$HOME/.local/bin:$PATH"` + "\n" + stop + " >&2 && ws ssh report")
+	if err != nil {
+		return fmt.Errorf("stopping %s on %s: %w", what, host, err)
+	}
+	var report []discover.Item
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		return fmt.Errorf("%s's report: %w", host, err)
+	}
+	return a.mgr.State.SaveHostItems(host, report)
 }
 
 // pushLink reports this host's own workspaces over the link. A dead or

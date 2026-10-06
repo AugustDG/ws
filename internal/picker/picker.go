@@ -268,8 +268,7 @@ func (m model) choose(a Action) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	it := m.items[m.rows[m.cursor].item]
-	// Only this machine's sessions can be stopped from here.
-	if a == Stop && (!it.Running || !it.Here()) {
+	if a == Stop && !stoppable(it) {
 		return m, nil
 	}
 	m.choice = Choice{Action: a, Item: it}
@@ -391,6 +390,20 @@ func (m model) headerRow(r row, selected bool) string {
 		line += styleDim.Render("  · " + note)
 	}
 	return line
+}
+
+// stoppable reports whether ctrl-x can stop it: a running session here,
+// on a host (over ssh), or on the machine this host was reached from
+// (over the link), or a host's header, for all of that host's. A third
+// machine's, seen through the connecting one, can't be.
+func stoppable(it discover.Item) bool {
+	switch {
+	case it.Kind == discover.Host:
+		return it.Via == "" && it.Machine != ""
+	case !it.Running || it.Kind == discover.Remote:
+		return false
+	}
+	return it.Via == "" || it.Machine == remoteLocal
 }
 
 // remoteLocal is the group a host shows the connecting machine's items in.
