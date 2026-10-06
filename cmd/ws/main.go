@@ -47,6 +47,7 @@ Config lives in ~/.config/ws (projects/, layouts/, config.yaml).`,
 		rmCmd(),
 		checkCmd(),
 		shellInitCmd(),
+		sshCmd(),
 	)
 	return cmd
 }

@@ -22,6 +22,7 @@ ws init                 create ~/.config/ws with a starter config
 ws new NAME / ws edit NAME / ws rm NAME
 ws check                validate every project and layout
 ws shell-init SHELL     shell hook so capture sees commands as typed
+ws ssh HOST [target]    attach to a workspace on another host
 ```
 
 `target` is a project name, a directory, a running session or a zoxide query,
@@ -152,6 +153,29 @@ after the next `ws stop`.
 default_layout: default   # layout for directories and projects that name none
 ```
 
+## Remote hosts
+
+`ws ssh HOST [target]` puts this terminal on a tmux session running on
+HOST. `HOST` is anything `ssh` accepts, aliases in `~/.ssh/config` included
+(and completed).
+
+- With `ws` on the host (on `PATH` or in `~/.local/bin`), `target` goes to
+  its `ws start`. Without a target it reopens the host's `ws last`.
+- Without `ws`, `target` names a plain tmux session, `main` by default.
+- Run inside tmux, the local client detaches and runs ssh in its place
+  (`detach-client -E`), so the host's tmux isn't nested and gets every key.
+  Detaching on the host brings back the local session you left.
+- The remote session outlives the connection. When an established
+  connection drops (ssh exits 255), ws reconnects with backoff until it's
+  back or you press ctrl-c. A connection that fails within its first 10
+  seconds isn't retried, so a wrong host or a failed login stops at once.
+- ssh runs with `ServerAliveInterval=15` and `ServerAliveCountMax=3`, so a
+  dead link is noticed within about 45 seconds. Other ssh options belong in
+  `~/.ssh/config`.
+
+The host's tmux reads the host's own config. To get your bindings there,
+copy your tmux config over, plugins included.
+
 ## Behavior worth knowing
 
 - `start` on a running session only adds windows it's missing, matched by
@@ -226,6 +250,7 @@ installed.
 | `internal/state` | per-session lease records |
 | `internal/capture` | concrete windows to layout YAML, worktree detection |
 | `internal/tmuxinator` | tmuxinator file parser |
+| `internal/remote` | `ws ssh`: remote script, reconnect loop, ssh config hosts |
 | `internal/discover` | picker sources (`Source` funcs) and merging |
 | `internal/picker` | Bubble Tea picker |
 | `cmd/ws` | one file per command |

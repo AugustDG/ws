@@ -166,7 +166,8 @@ func (c *Client) ClientSize() (w, h int, ok bool) {
 }
 
 // Attach switches the current client to the session, or replaces this
-// process with `tmux attach` when ws runs outside tmux.
+// process with `tmux attach` when ws runs outside tmux. Outside tmux, an
+// empty session attaches to the most recently used one.
 func (c *Client) Attach(session string) error {
 	if Inside() {
 		_, err := c.Run("switch-client", "-t", Exact(session))
@@ -176,7 +177,11 @@ func (c *Client) Attach(session string) error {
 	if err != nil {
 		return err
 	}
-	argv := append([]string{c.Bin}, c.args([]string{"attach-session", "-t", Exact(session)})...)
+	args := []string{"attach-session"}
+	if session != "" {
+		args = append(args, "-t", Exact(session))
+	}
+	argv := append([]string{c.Bin}, c.args(args)...)
 	return syscall.Exec(bin, argv, os.Environ())
 }
 
