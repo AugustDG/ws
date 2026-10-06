@@ -80,7 +80,7 @@ func (a *app) setupHost(host string, check, force, noConfig bool) error {
 	var bin string
 	if probe.Supported() {
 		var cleanup func()
-		if bin, cleanup, err = wsBinary(probe); err != nil {
+		if bin, local.WSFrom, cleanup, err = wsBinary(probe); err != nil {
 			return err
 		}
 		defer cleanup()
@@ -178,38 +178,41 @@ func (a *app) localTerms() []string {
 	return []string{outer, "tmux-256color"}
 }
 
-// wsBinary is the ws to install on the host: this one when the platforms
-// match, else the release build, downloaded to a temp file.
-func wsBinary(p remote.Probe) (string, func(), error) {
+// wsBinary is the ws to install on the host, and where it's from: this
+// one when the platforms match, else the release build, downloaded to a
+// temp file. The release is built from the last push, so local changes
+// reach other platforms only after pushing.
+func wsBinary(p remote.Probe) (string, string, func(), error) {
 	if p.OS == runtime.GOOS && p.Arch == runtime.GOARCH {
 		exe, err := os.Executable()
-		return exe, func() {}, err
+		return exe, "this build", func() {}, err
 	}
+	const from = "the latest release"
 	fmt.Fprintf(os.Stderr, "downloading %s\n", p.Asset())
 	client := &http.Client{Timeout: 2 * time.Minute}
 	resp, err := client.Get(releaseURL + p.Asset())
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", nil, fmt.Errorf("downloading %s: %s", p.Asset(), resp.Status)
+		return "", "", nil, fmt.Errorf("downloading %s: %s", p.Asset(), resp.Status)
 	}
 	f, err := os.CreateTemp("", "ws-*")
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
 	cleanup := func() { os.Remove(f.Name()) }
 	if _, err := io.Copy(f, resp.Body); err != nil {
 		f.Close()
 		cleanup()
-		return "", nil, err
+		return "", "", nil, err
 	}
 	if err := f.Close(); err != nil {
 		cleanup()
-		return "", nil, err
+		return "", "", nil, err
 	}
-	return f.Name(), cleanup, nil
+	return f.Name(), from, cleanup, nil
 }
 
 // sendBundle streams b as a tar into script on the host.

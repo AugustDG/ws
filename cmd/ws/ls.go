@@ -7,6 +7,8 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
+
+	"github.com/AugustDG/ws/internal/worktree"
 )
 
 func lsCmd() *cobra.Command {
@@ -31,7 +33,10 @@ running session ws didn't start, so it has no leased worktrees) or stopped.`,
 			items := a.items()
 			if plain {
 				for _, it := range items {
-					fmt.Println(it.Name)
+					// Names here are for ws start, which can't open a remote.
+					if it.Here() {
+						fmt.Println(it.Name)
+					}
 				}
 				return nil
 			}
@@ -39,14 +44,18 @@ running session ws didn't start, so it has no leased worktrees) or stopped.`,
 			fmt.Fprintln(tw, "NAME\tSTATE\tKIND\tROOT\tWORKTREES")
 			for _, it := range items {
 				var wts []string
-				leases, err := a.mgr.Leases(it.Name)
+				var leases []worktree.Lease
+				var err error
+				if it.Here() { // leases of other machines aren't recorded here
+					leases, err = a.mgr.Leases(it.Name)
+				}
 				if err != nil {
 					wts = []string{"? " + err.Error()}
 				}
 				for _, l := range leases {
 					wts = append(wts, a.cfg.AbbrevHome(l.Path))
 				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", it.Name, it.State(), it.Kind,
+				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", it.Name, it.State(), it.Label(),
 					a.cfg.AbbrevHome(it.Path), strings.Join(wts, ", "))
 			}
 			return tw.Flush()

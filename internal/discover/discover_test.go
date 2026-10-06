@@ -61,3 +61,22 @@ func TestCollectSortsByLastUsed(t *testing.T) {
 		t.Errorf("order = %v, want %s", names, want)
 	}
 }
+
+func TestCollectKeepsRemotesApart(t *testing.T) {
+	at := func(min int) time.Time { return time.Unix(0, 0).Add(time.Duration(min) * time.Minute) }
+	got := Collect(
+		map[string]time.Time{"box": at(9)},
+		static(Item{Name: "box", Kind: Session, Running: true, LastUsed: at(1)}),
+		static(Item{Name: "box", Kind: Remote, Host: "box", LastUsed: at(5)}),
+	)
+	if len(got) != 2 {
+		t.Fatalf("a remote merged with a local session: %+v", got)
+	}
+	// used applies to the local box only, so it sorts first.
+	if got[0].Kind != Session || got[1].Kind != Remote || !got[1].LastUsed.Equal(at(5)) {
+		t.Errorf("got %+v", got)
+	}
+	if got[1].State() != "remote" {
+		t.Errorf("remote state %q", got[1].State())
+	}
+}

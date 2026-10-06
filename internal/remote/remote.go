@@ -23,21 +23,27 @@ const DefaultSession = "main"
 // `ws start TARGET`, or reopens the host's last workspace when there's no
 // target. Without ws it attaches to (or creates) the tmux session TARGET.
 // ~/.local/bin is added to PATH because ssh runs commands in a
-// non-login shell, which often leaves it out.
-func Script(target string) string {
+// non-login shell, which often leaves it out. A non-empty link is the
+// forwarded socket, recorded in the host's state dir for its picker.
+func Script(target, link string) string {
 	start := `"$(ws last 2>/dev/null)"`
 	session := DefaultSession
 	if target != "" {
 		start = tmux.Quote(target)
 		session = target
 	}
-	return strings.Join([]string{
-		`PATH="$HOME/.local/bin:$PATH"; export PATH`,
-		`if command -v ws >/dev/null 2>&1; then exec ws start ` + start + `; fi`,
-		`if command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s ` + tmux.Quote(session) + `; fi`,
+	lines := []string{`PATH="$HOME/.local/bin:$PATH"; export PATH`}
+	if link != "" {
+		lines = append(lines,
+			`d="${WS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/ws}"`,
+			`mkdir -p "$d" && printf %s `+tmux.Quote(link)+` > "$d/`+LinkFile+`"`)
+	}
+	return strings.Join(append(lines,
+		`if command -v ws >/dev/null 2>&1; then exec ws start `+start+`; fi`,
+		`if command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s `+tmux.Quote(session)+`; fi`,
 		`echo "ws ssh: neither ws nor tmux is installed on this host; run ws ssh setup for it" >&2`,
 		`exit 127`,
-	}, "\n")
+	), "\n")
 }
 
 // Conn is one `ws ssh` connection.
@@ -47,6 +53,11 @@ type Conn struct {
 
 	SSH string // ssh binary; "ssh" when empty
 	Log io.Writer
+
+	// LocalSocket, when set, is forwarded to the host as the link (see
+	// Listen), at a new path for each connection attempt.
+	LocalSocket string
+	link        string
 
 	// Live is how long a connection must have lasted to count as
 	// established. Only an established connection is retried when it
@@ -68,13 +79,15 @@ func (c *Conn) Validate() error {
 // exit within ~45s instead of hanging. The script runs under sh so it
 // doesn't depend on the host's login shell.
 func (c *Conn) Args() []string {
-	return []string{
+	args := []string{
 		"-t",
 		"-o", "ServerAliveInterval=15",
 		"-o", "ServerAliveCountMax=3",
-		c.Host,
-		"exec sh -c " + tmux.Quote(Script(c.Target)),
 	}
+	if c.link != "" {
+		args = append(args, "-R", c.link+":"+c.LocalSocket)
+	}
+	return append(args, c.Host, "exec sh -c "+tmux.Quote(Script(c.Target, c.link)))
 }
 
 // sshDropped is the exit status ssh uses for its own errors, including a
@@ -139,6 +152,9 @@ func (c *Conn) defaults() {
 }
 
 func (c *Conn) ssh() error {
+	if c.LocalSocket != "" {
+		c.link = newLinkPath()
+	}
 	cmd := exec.Command(c.SSH, c.Args()...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	err := cmd.Run()

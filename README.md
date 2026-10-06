@@ -170,6 +170,21 @@ HOST. `HOST` is anything `ssh` accepts, aliases in `~/.ssh/config` included
   connection drops (ssh exits 255), ws reconnects with backoff until it's
   back or you press ctrl-c. A connection that fails within its first 10
   seconds isn't retried, so a wrong host or a failed login stops at once.
+- Each connection that ends cleanly is recorded in `~/.local/state/ws/remotes`
+  and shows in the picker and `ws ls` as `host` or `host:target`, kind
+  `remote`, sorted by last use with everything else. Opening one runs
+  `ws ssh` for it. The list comes from that record, not the network, so the
+  picker never waits on ssh, and it can't tell whether the remote session
+  is still running. `ws ls --plain` leaves remotes out, since its names are
+  for `ws start`.
+- While connected, the host's picker lists this machine's sessions and
+  projects too (kind `local session` / `local project`), along with your
+  other remotes. Picking one detaches from the host, and ws opens it here,
+  or connects to the other host. This runs over a Unix socket that ssh
+  forwards to `/tmp/ws-link-*.sock` on the host (mode 0600, removed by the
+  host's picker once dead). If the host's sshd disallows socket forwarding,
+  ssh prints a warning and the picker there shows the host's own items
+  only.
 - ssh runs with `ServerAliveInterval=15` and `ServerAliveCountMax=3`, so a
   dead link is noticed within about 45 seconds. Other ssh options belong in
   `~/.ssh/config`.

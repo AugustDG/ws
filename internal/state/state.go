@@ -1,6 +1,6 @@
 // Package state persists what ws needs across runs: what it acquired for
-// each session, so stop can give back exactly that, and when each
-// workspace was last used.
+// each session, so stop can give back exactly that, when each workspace
+// was last used, and which remote workspaces ws ssh reached.
 package state
 
 import (
@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -136,10 +137,22 @@ func (s Store) Used() (map[string]Use, error) {
 // RecordUse stamps name as used now. tmux hooks can record at the same
 // moment, so the read-modify-write holds a lock.
 func (s Store) RecordUse(name, root string) error {
+	return s.locked(s.usedPath(), func() error {
+		used, err := s.Used()
+		if err != nil {
+			return err
+		}
+		used[name] = Use{Root: root, At: time.Now()}
+		return s.write(s.usedPath(), used)
+	})
+}
+
+// locked runs fn holding an exclusive lock on path's lock file.
+func (s Store) locked(path string, fn func() error) error {
 	if err := os.MkdirAll(s.Dir, 0o755); err != nil {
 		return err
 	}
-	lock, err := os.OpenFile(s.usedPath()+".lock", os.O_CREATE|os.O_RDWR, 0o644)
+	lock, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return err
 	}
@@ -147,12 +160,45 @@ func (s Store) RecordUse(name, root string) error {
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
 		return err
 	}
-	used, err := s.Used()
-	if err != nil {
-		return err
+	return fn()
+}
+
+// Remote is a workspace reached with ws ssh: a host and the target given
+// there, if any.
+type Remote struct {
+	Host   string    `json:"host"`
+	Target string    `json:"target,omitempty"`
+	At     time.Time `json:"at"`
+}
+
+// remotesPath has no .json extension so Names doesn't list it as a session.
+func (s Store) remotesPath() string { return filepath.Join(s.Dir, "remotes") }
+
+// Remotes lists the remote workspaces connected to, newest first. They're
+// kept apart from Used so ws last stays on this machine.
+func (s Store) Remotes() ([]Remote, error) {
+	var remotes []Remote
+	data, err := os.ReadFile(s.remotesPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
 	}
-	used[name] = Use{Root: root, At: time.Now()}
-	return s.write(s.usedPath(), used)
+	if err != nil {
+		return nil, err
+	}
+	return remotes, json.Unmarshal(data, &remotes)
+}
+
+// RecordRemote stamps host and target as connected to now.
+func (s Store) RecordRemote(host, target string) error {
+	return s.locked(s.remotesPath(), func() error {
+		remotes, err := s.Remotes()
+		if err != nil {
+			return err
+		}
+		remotes = slices.DeleteFunc(remotes, func(r Remote) bool { return r.Host == host && r.Target == target })
+		remotes = append([]Remote{{Host: host, Target: target, At: time.Now()}}, remotes...)
+		return s.write(s.remotesPath(), remotes)
+	})
 }
 
 // Last returns the most recently used workspace, and false if none is.

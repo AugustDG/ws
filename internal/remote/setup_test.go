@@ -27,6 +27,18 @@ func hostShell(t *testing.T, home, script string, stdin []byte) string {
 	return string(out)
 }
 
+// hostShellPath is hostShell with bin ahead of the system dirs on PATH.
+func hostShellPath(t *testing.T, home, bin, script string) string {
+	t.Helper()
+	cmd := exec.Command(filepath.Join(bin, "sh"), "-c", script)
+	cmd.Env = []string{"HOME=" + home, "PATH=" + bin + ":/usr/bin:/bin"}
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}
+
 func write(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

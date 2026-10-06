@@ -119,7 +119,8 @@ func (m model) choose(a Action) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	it := m.items[m.matches[m.cursor].Index]
-	if a == Stop && !it.Running {
+	// Only this machine's sessions can be stopped from here.
+	if a == Stop && (!it.Running || it.Via != "") {
 		return m, nil
 	}
 	m.choice = Choice{Action: a, Item: it}
@@ -154,9 +155,9 @@ func (m model) row(match fuzzy.Match, selected bool) string {
 	} else {
 		name = "  " + name
 	}
-	head := marker + name + "  " + it.Kind.String() + "  "
+	head := marker + name + "  " + it.Label() + "  "
 	path := truncateLeft(m.display(it.Path), m.width-lipgloss.Width(head))
-	return marker + name + "  " + styleDim.Render(it.Kind.String()+"  "+path)
+	return marker + name + "  " + styleDim.Render(it.Label()+"  "+path)
 }
 
 // truncateLeft keeps the end of s, which is the informative part of a path.

@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/spf13/cobra"
 
+	"github.com/AugustDG/ws/internal/discover"
 	"github.com/AugustDG/ws/internal/remote"
 	"github.com/AugustDG/ws/internal/tmux"
 )
@@ -31,26 +33,26 @@ brings back the local session you left. The remote session keeps running
 after a detach or a dropped connection, and a dropped connection is
 retried until it's back or you press ctrl-c.
 
+While connected, the host's picker also lists this machine's sessions and
+projects ("local session") and the other hosts you use. Picking one
+detaches from the host and opens it here.
+
 ws ssh setup HOST installs tmux and ws on HOST and copies your config.`,
 		Args:              cobra.RangeArgs(1, 2),
 		ValidArgsFunction: completeHosts,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			conn := &remote.Conn{Host: args[0]}
+			host, target := args[0], ""
 			if len(args) > 1 {
-				conn.Target = args[1]
+				target = args[1]
 			}
-			if err := conn.Validate(); err != nil {
+			a, err := newApp()
+			if err != nil {
 				return err
 			}
-			tc := tmux.New()
-			switch {
-			case fromTmux:
-				return returnToTmux(tc, conn, returnTo)
-			case tmux.Inside():
-				return handOff(tc, args)
-			default:
-				return conn.Run()
+			if fromTmux {
+				return a.returnToTmux(host, target, returnTo)
 			}
+			return a.connect(host, target)
 		},
 	}
 	cmd.Flags().BoolVar(&fromTmux, "from-tmux", false, "internal: running in place of a detached tmux client")
@@ -59,6 +61,83 @@ ws ssh setup HOST installs tmux and ws on HOST and copies your config.`,
 	_ = cmd.Flags().MarkHidden("return-to")
 	cmd.AddCommand(sshSetupCmd())
 	return cmd
+}
+
+// connect attaches this terminal to target on host: through a handoff
+// inside tmux, else directly, then opens whatever was picked from this
+// machine's items on the host.
+func (a *app) connect(host, target string) error {
+	if err := (&remote.Conn{Host: host}).Validate(); err != nil {
+		return err
+	}
+	if tmux.Inside() {
+		args := []string{host}
+		if target != "" {
+			args = append(args, target)
+		}
+		return handOff(a.tmux, args)
+	}
+	it, err := a.visit(host, target)
+	if err != nil || it == nil {
+		return err
+	}
+	return a.open(*it)
+}
+
+// visit connects to target on host, recording each session that ends
+// cleanly for the picker. Picking another host in the host's picker moves
+// there. Picking one of this machine's items ends the visit and returns
+// it; detaching returns nil.
+func (a *app) visit(host, target string) (*discover.Item, error) {
+	for {
+		conn := &remote.Conn{Host: host, Target: target}
+		link := a.listenLink(host)
+		if link != nil {
+			conn.LocalSocket = link.Path
+		}
+		err := conn.Run()
+		var chosen discover.Item
+		var picked bool
+		if link != nil {
+			chosen, picked = link.Chosen()
+			link.Close()
+		}
+		if err != nil {
+			return nil, err
+		}
+		if err := a.mgr.State.RecordRemote(host, target); err != nil {
+			fmt.Fprintf(os.Stderr, "ws ssh: not recorded for the picker: %v\n", err)
+		}
+		if !picked {
+			return nil, nil
+		}
+		if chosen.Kind != discover.Remote {
+			return &chosen, nil
+		}
+		host, target = chosen.Host, chosen.Target
+	}
+}
+
+// listenLink serves this machine's items to the host's picker. It returns
+// nil when it can't; the connection works without it.
+func (a *app) listenLink(host string) *remote.Link {
+	dir := filepath.Join(a.mgr.State.Dir, "ssh")
+	path := filepath.Join(dir, fmt.Sprintf("link-%d.sock", os.Getpid()))
+	if len(path) > 100 { // past the Unix socket path limit
+		path = filepath.Join(os.TempDir(), fmt.Sprintf("ws-link-%d.sock", os.Getpid()))
+	} else if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil
+	}
+	link, err := remote.Listen(path, func() []discover.Item {
+		return slices.DeleteFunc(a.items(), func(it discover.Item) bool {
+			return it.Kind == discover.Remote && it.Host == host
+		})
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ws ssh: the host's picker won't list this machine: %v\n", err)
+		return nil
+	}
+	return link
 }
 
 // handOff detaches this tmux client and has it run `ws ssh` in its place,
@@ -82,20 +161,27 @@ func handOff(tc *tmux.Client, args []string) error {
 	return err
 }
 
-// returnToTmux runs the connection, then reattaches the local session it
-// was started from, or the most recent one if that's gone. An error stays
+// returnToTmux runs the visit in place of a detached tmux client, then
+// opens what was picked on the host, or reattaches the local session it
+// was started from (the most recent one if that's gone). An error stays
 // on screen until enter, since reattaching would hide it.
-func returnToTmux(tc *tmux.Client, conn *remote.Conn, session string) error {
-	if err := conn.Run(); err != nil {
+func (a *app) returnToTmux(host, target, session string) error {
+	// The replaced client isn't inside tmux, whatever its environment says.
+	os.Unsetenv("TMUX")
+	it, err := a.visit(host, target)
+	if err == nil && it != nil {
+		if err = a.open(*it); err == nil {
+			return nil
+		}
+	}
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "ws ssh: %v\npress enter to return to tmux", err)
 		_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 	}
-	// The replaced client isn't inside tmux, whatever its environment says.
-	os.Unsetenv("TMUX")
-	if !tc.HasSession(session) {
+	if !a.tmux.HasSession(session) {
 		session = ""
 	}
-	return tc.Attach(session)
+	return a.tmux.Attach(session)
 }
 
 func completeHosts(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {

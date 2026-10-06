@@ -179,6 +179,10 @@ func (p Probe) Asset() string { return "ws-" + p.OS + "-" + p.Arch }
 type Local struct {
 	WSHash, TmuxHash, WSConfHash string
 	Terms                        []string
+
+	// WSFrom names where the binary comes from, for the plan: "this
+	// build" or "the latest release".
+	WSFrom string
 }
 
 // Step is one line of a plan.
@@ -221,11 +225,11 @@ func NewPlan(p Probe, l Local, force bool) Plan {
 	case !p.Supported():
 		plan.WS = Step{Name: "ws", Fail: true, Note: fmt.Sprintf("no ws build for %s/%s", p.OS, p.Arch)}
 	case p.WSHash == "":
-		plan.WS = Step{Name: "ws", Do: true, Note: "install to ~/.local/bin"}
+		plan.WS = Step{Name: "ws", Do: true, Note: "install " + l.WSFrom + " to ~/.local/bin"}
 	case p.WSHash != l.WSHash:
-		plan.WS = Step{Name: "ws", Do: true, Note: "update"}
+		plan.WS = Step{Name: "ws", Do: true, Note: "update to " + l.WSFrom}
 	default:
-		plan.WS.Note = "up to date"
+		plan.WS.Note = "same as " + l.WSFrom
 	}
 
 	for _, t := range p.MissingTerms {

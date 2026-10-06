@@ -11,6 +11,7 @@ import (
 
 	"github.com/AugustDG/ws/internal/discover"
 	"github.com/AugustDG/ws/internal/picker"
+	"github.com/AugustDG/ws/internal/remote"
 	"github.com/AugustDG/ws/internal/workspace"
 )
 
@@ -42,8 +43,8 @@ func runPicker(_ *cobra.Command, _ []string) error {
 	}
 }
 
-// items is what the picker and ws ls show: running sessions and projects,
-// most recently used first.
+// items is what the picker and ws ls show: running sessions, projects
+// and remote workspaces, most recently used first.
 func (a *app) items() []discover.Item {
 	used := map[string]time.Time{}
 	if uses, err := a.mgr.State.Used(); err == nil {
@@ -51,7 +52,18 @@ func (a *app) items() []discover.Item {
 			used[name] = u.At
 		}
 	}
-	return discover.Collect(used, discover.Sessions(a.tmux), discover.Projects(a.cfg))
+	return discover.Collect(used, discover.Sessions(a.tmux), discover.Projects(a.cfg), discover.Remotes(a.mgr.State), a.linked)
+}
+
+// linked lists the items of the machine ws ssh connected to this host
+// from, while that connection is up.
+func (a *app) linked() ([]discover.Item, error) {
+	path := remote.LinkPath(a.mgr.State.Dir)
+	if path == "" {
+		return nil, nil
+	}
+	remote.PruneLinks(path)
+	return remote.LinkItems(path)
 }
 
 // pickerItems is items with the session ws runs in moved to the end, since
@@ -63,7 +75,7 @@ func (a *app) pickerItems() []discover.Item {
 	if err != nil {
 		return items
 	}
-	i := slices.IndexFunc(items, func(it discover.Item) bool { return it.Name == current })
+	i := slices.IndexFunc(items, func(it discover.Item) bool { return it.Here() && it.Name == current })
 	if i < 0 {
 		return items
 	}
@@ -71,8 +83,21 @@ func (a *app) pickerItems() []discover.Item {
 	return append(slices.Delete(items, i, i+1), it)
 }
 
-// open attaches to a running item, starting a stopped project first.
+// open attaches to a running item, starting a stopped project first. A
+// remote item connects with ws ssh, and an item of the machine this host
+// was reached from is opened there.
 func (a *app) open(it discover.Item) error {
+	if it.Via != "" {
+		// Detaching ends the ssh session; ws ssh on the other end opens it.
+		if err := remote.LinkOpen(remote.LinkPath(a.mgr.State.Dir), it); err != nil {
+			return err
+		}
+		_, err := a.tmux.Run("detach-client")
+		return err
+	}
+	if it.Kind == discover.Remote {
+		return a.connect(it.Host, it.Target)
+	}
 	if !it.Running {
 		p, err := a.cfg.Project(it.Name)
 		if err != nil {
