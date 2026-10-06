@@ -101,9 +101,11 @@ func newModel(items []discover.Item, display func(string) string, opts Options) 
 	return m
 }
 
-// filter rebuilds the rows when the query changed: this machine's group
-// first, then the others in the order their most recent item appears. A
-// machine's Host item is its header; without one the header is a label.
+// filter rebuilds the rows when the query changed. Without a query they're
+// grouped by machine: this one first, then the others in the order their
+// most recent item appears. A machine's Host item is its header; without
+// one the header is a label. With a query, they're one list ranked by how
+// well each matches, wherever it lives, and hosts are rows like the rest.
 // Other updates, like the input's cursor blinking, keep the selection.
 func (m *model) filter() {
 	q := strings.TrimSpace(m.input.Value())
@@ -119,10 +121,12 @@ func (m *model) filter() {
 			matched[i] = nil
 		}
 	} else {
+		m.rows = []row{}
 		for _, mt := range fuzzy.Find(q, m.haystack) {
-			order = append(order, mt.Index)
-			matched[mt.Index] = mt.MatchedIndexes
+			m.rows = append(m.rows, row{item: mt.Index, machine: m.items[mt.Index].Machine, matched: mt.MatchedIndexes})
 		}
+		m.cursor = 0
+		return
 	}
 
 	machines := []string{""}
@@ -270,27 +274,54 @@ func (m model) row(r row, selected bool) string {
 	} else {
 		name = "  " + name
 	}
-	head := "  " + marker + name + "  " + it.Kind.String() + "  "
+	kind := styleDim.Render(it.Kind.String())
+	if m.query != "" {
+		kind = m.where(it)
+	}
+	head := "  " + marker + name + "  " + kind + "  "
 	path := truncateLeft(m.display(it.Path), m.width-lipgloss.Width(head))
-	return "  " + marker + name + "  " + styleDim.Render(it.Kind.String()+"  "+path)
+	return head + styleDim.Render(path)
+}
+
+// where is the kind of a ranked row, after the machine it's on in that
+// machine's color: "patchwork session", or just "host" for a host.
+func (m model) where(it discover.Item) string {
+	if it.Kind == discover.Host {
+		return m.machineStyle(it.Machine).Render("host")
+	}
+	if it.Machine == "" && !m.opts.Remote {
+		return styleDim.Render(it.Kind.String())
+	}
+	name := it.Machine
+	if name == "" {
+		name = m.opts.Here
+	}
+	return m.machineStyle(it.Machine).Render(name) + styleDim.Render(" "+it.Kind.String())
+}
+
+// machineStyle is a machine's color: green for the one you started on,
+// amber for hosts, matching the tmux status bars.
+func (m model) machineStyle(machine string) lipgloss.Style {
+	switch {
+	case machine == remoteLocal, machine == "" && !m.opts.Remote:
+		return styleLocalHost
+	}
+	return styleRemoteHost
 }
 
 // headerRow names a machine in its color. A host's header says when it was
 // last connected to, which is also how fresh its items are.
 func (m model) headerRow(r row, selected bool) string {
-	name, style, note := m.opts.Here, styleLocalHost, ""
+	name, style, note := m.opts.Here, m.machineStyle(r.machine), ""
 	if name == "" {
 		name = "local"
 	}
 	if r.machine == "" {
 		if m.opts.Remote {
-			style, note = styleRemoteHost, "this host"
+			note = "this host"
 		}
 	} else {
 		name = r.machine
-		if r.machine != remoteLocal {
-			style = styleRemoteHost
-		}
 		if r.item >= 0 {
 			it := m.items[r.item]
 			name = highlight(it.Name, r.matched)

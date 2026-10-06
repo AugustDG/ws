@@ -71,10 +71,10 @@ func TestGroups(t *testing.T) {
 		t.Errorf("a blink moved the cursor to %d", got)
 	}
 
-	// Filtering by host name keeps its header and items only.
+	// Searching drops the groups: rows rank by match, hosts included.
 	m.input.SetValue("box")
 	m.filter()
-	if got := layout(m); got != "[box] box\n  api" {
+	if got := layout(m); got != "  box\n  api" {
 		t.Errorf("filtered:\n%s", got)
 	}
 	m.input.SetValue("zzz")
@@ -94,5 +94,29 @@ func TestStopOnlyHere(t *testing.T) {
 	m := newModel(items, func(s string) string { return s }, Options{})
 	if _, cmd := m.choose(Stop); cmd != nil {
 		t.Error("stopped another machine's session")
+	}
+}
+
+func TestSearchRanksAcrossMachines(t *testing.T) {
+	items := []discover.Item{
+		{Name: "graphite", Kind: discover.Project},
+		{Name: "box", Kind: discover.Host, Machine: "box", Host: "box"},
+		{Name: "api", Kind: discover.Session, Machine: "box", Host: "box"},
+	}
+	m := newModel(items, func(s string) string { return s }, Options{Here: "local"})
+	m.input.SetValue("api")
+	m.filter()
+	// box's api matches better than the local project, so it comes first
+	// although this machine's group would.
+	if got := layout(m); got != "  api\n  graphite" {
+		t.Errorf("ranked:\n%s", got)
+	}
+	if m.cursor != 0 {
+		t.Errorf("cursor on %d, want the best match", m.cursor)
+	}
+	m.input.SetValue("")
+	m.filter()
+	if !m.rows[0].header {
+		t.Error("clearing the query didn't bring the groups back")
 	}
 }

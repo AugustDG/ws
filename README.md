@@ -176,6 +176,9 @@ HOST. `HOST` is anything `ssh` accepts, aliases in `~/.ssh/config` included
   each host you've used `ws ssh` with (amber, like its status bar), most
   recent first. Selecting a host's header connects to its last workspace,
   and selecting an item under it connects to that one.
+  Once you type, the groups give way to one list ranked by how well each
+  item matches, wherever it lives; each row names its machine in that
+  machine's color.
 - A host's items are what it last reported. While you're connected, the
   host reports its sessions and projects whenever one is created, closed
   or switched to, and the header says when that was (`seen 4m ago`).
