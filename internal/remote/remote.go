@@ -35,7 +35,7 @@ func Script(target string) string {
 		`PATH="$HOME/.local/bin:$PATH"; export PATH`,
 		`if command -v ws >/dev/null 2>&1; then exec ws start ` + start + `; fi`,
 		`if command -v tmux >/dev/null 2>&1; then exec tmux new-session -A -s ` + tmux.Quote(session) + `; fi`,
-		`echo "ws ssh: neither ws nor tmux is installed on this host" >&2`,
+		`echo "ws ssh: neither ws nor tmux is installed on this host; run ws ssh setup for it" >&2`,
 		`exit 127`,
 	}, "\n")
 }

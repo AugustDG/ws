@@ -29,7 +29,9 @@ Inside tmux, the local client hands the terminal over to ssh, so there's
 no nesting and the host's tmux sees every key. Detaching on the host
 brings back the local session you left. The remote session keeps running
 after a detach or a dropped connection, and a dropped connection is
-retried until it's back or you press ctrl-c.`,
+retried until it's back or you press ctrl-c.
+
+ws ssh setup HOST installs tmux and ws on HOST and copies your config.`,
 		Args:              cobra.RangeArgs(1, 2),
 		ValidArgsFunction: completeHosts,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -55,6 +57,7 @@ retried until it's back or you press ctrl-c.`,
 	cmd.Flags().StringVar(&returnTo, "return-to", "", "internal: session to reattach afterwards")
 	_ = cmd.Flags().MarkHidden("from-tmux")
 	_ = cmd.Flags().MarkHidden("return-to")
+	cmd.AddCommand(sshSetupCmd())
 	return cmd
 }
 

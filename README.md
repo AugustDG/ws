@@ -23,6 +23,7 @@ ws new NAME / ws edit NAME / ws rm NAME
 ws check                validate every project and layout
 ws shell-init SHELL     shell hook so capture sees commands as typed
 ws ssh HOST [target]    attach to a workspace on another host
+ws ssh setup HOST       install tmux and ws there, copy your config
 ```
 
 `target` is a project name, a directory, a running session or a zoxide query,
@@ -173,8 +174,24 @@ HOST. `HOST` is anything `ssh` accepts, aliases in `~/.ssh/config` included
   dead link is noticed within about 45 seconds. Other ssh options belong in
   `~/.ssh/config`.
 
-The host's tmux reads the host's own config. To get your bindings there,
-copy your tmux config over, plugins included.
+The host's tmux reads the host's own config. `ws ssh setup HOST` gets it
+ready:
+
+| step | what it does |
+|------|--------------|
+| tmux | installs it with the host's package manager (apt-get, dnf, yum, apk, pacman, zypper, brew); sudo may prompt |
+| ws | this binary when the platforms match, else the release build, in `~/.local/bin` |
+| terminfo | compiles your terminal's entry and `tmux-256color` on the host if it lacks them |
+| tmux config | copies `~/.config/tmux`, plugins included, and reloads a running server |
+| ws config | copies `config.yaml` and `layouts/`. Projects stay behind: their paths are this machine's |
+
+Each step is skipped when the host is up to date (the binary by sha256,
+config by a hash kept in `.ws-sync`), so rerun it after changing your
+config. Config the host already has, and that setup didn't write, is left
+alone unless `--force` is given; then it's kept as a `.ws-bak` copy, and so
+is `~/.tmux.conf`, which tmux would otherwise read instead. `--check` shows
+the plan without changing anything, and `--no-config` skips the config.
+All steps share one ssh connection, so the host authenticates once.
 
 ## Behavior worth knowing
 
@@ -250,7 +267,7 @@ installed.
 | `internal/state` | per-session lease records |
 | `internal/capture` | concrete windows to layout YAML, worktree detection |
 | `internal/tmuxinator` | tmuxinator file parser |
-| `internal/remote` | `ws ssh`: remote script, reconnect loop, ssh config hosts |
+| `internal/remote` | `ws ssh`: remote script, reconnect loop, ssh config hosts, setup plan and sync |
 | `internal/discover` | picker sources (`Source` funcs) and merging |
 | `internal/picker` | Bubble Tea picker |
 | `cmd/ws` | one file per command |
