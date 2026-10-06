@@ -302,7 +302,7 @@ func (m model) headerRow(r row, selected bool) string {
 			}
 		}
 	}
-	prefix := "▌ "
+	prefix := "  "
 	if selected {
 		prefix = styleSelected.Render("› ")
 	}
