@@ -24,8 +24,9 @@ const DefaultSession = "main"
 // target. Without ws it attaches to (or creates) the tmux session TARGET.
 // ~/.local/bin is added to PATH because ssh runs commands in a
 // non-login shell, which often leaves it out. A non-empty link is the
-// forwarded socket, recorded in the host's state dir for its picker.
-func Script(target, link string) string {
+// forwarded socket, recorded in the host's state dir for its picker along
+// with host, the name the host was reached by.
+func Script(target, link, host string) string {
 	start := `"$(ws last 2>/dev/null)"`
 	session := DefaultSession
 	if target != "" {
@@ -36,7 +37,7 @@ func Script(target, link string) string {
 	if link != "" {
 		lines = append(lines,
 			`d="${WS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/ws}"`,
-			`mkdir -p "$d" && printf %s `+tmux.Quote(link)+` > "$d/`+LinkFile+`"`)
+			`mkdir -p "$d" && printf '%s\n%s\n' `+tmux.Quote(link)+` `+tmux.Quote(host)+` > "$d/`+LinkFile+`"`)
 	}
 	return strings.Join(append(lines,
 		`if command -v ws >/dev/null 2>&1; then exec ws start `+start+`; fi`,
@@ -59,10 +60,12 @@ type Conn struct {
 	LocalSocket string
 	link        string
 
-	// Live is how long a connection must have lasted to count as
-	// established. Only an established connection is retried when it
-	// drops, so a typo'd host or failed login fails at once.
-	Live time.Duration
+	// marker is created by ssh once it has connected and logged in (see
+	// Args). Only a connection that got that far is retried when it
+	// drops, so a wrong host, an unreachable one or a failed login fails
+	// at once, however long ssh took to give up.
+	marker string
+
 	// Backoff is the first retry delay. It doubles up to MaxBackoff.
 	Backoff, MaxBackoff time.Duration
 }
@@ -76,7 +79,8 @@ func (c *Conn) Validate() error {
 }
 
 // Args are the arguments to ssh. The keepalives make a dead connection
-// exit within ~45s instead of hanging. The script runs under sh so it
+// exit within ~45s instead of hanging. LocalCommand, which ssh runs here
+// once it's logged in, creates the marker. The script runs under sh so it
 // doesn't depend on the host's login shell.
 func (c *Conn) Args() []string {
 	args := []string{
@@ -84,10 +88,15 @@ func (c *Conn) Args() []string {
 		"-o", "ServerAliveInterval=15",
 		"-o", "ServerAliveCountMax=3",
 	}
+	if c.marker != "" {
+		// % starts an ssh token in LocalCommand.
+		touch := "touch " + strings.ReplaceAll(tmux.Quote(c.marker), "%", "%%")
+		args = append(args, "-o", "PermitLocalCommand=yes", "-o", "LocalCommand="+touch)
+	}
 	if c.link != "" {
 		args = append(args, "-R", c.link+":"+c.LocalSocket)
 	}
-	return append(args, c.Host, "exec sh -c "+tmux.Quote(Script(c.Target, c.link)))
+	return append(args, c.Host, "exec sh -c "+tmux.Quote(Script(c.Target, c.link, c.Host)))
 }
 
 // sshDropped is the exit status ssh uses for its own errors, including a
@@ -110,13 +119,12 @@ func (c *Conn) Run() error {
 	established := false
 	attempt := 0
 	for {
-		began := time.Now()
-		err := c.ssh()
+		connected, err := c.ssh()
 		if exitCode(err) != sshDropped || interrupted(interrupt) {
 			return err
 		}
 		resetTerminal(c.Log)
-		if time.Since(began) >= c.Live {
+		if connected {
 			established, attempt = true, 0
 		}
 		if !established {
@@ -140,9 +148,6 @@ func (c *Conn) defaults() {
 	if c.Log == nil {
 		c.Log = os.Stderr
 	}
-	if c.Live == 0 {
-		c.Live = 10 * time.Second
-	}
 	if c.Backoff == 0 {
 		c.Backoff = time.Second
 	}
@@ -151,18 +156,31 @@ func (c *Conn) defaults() {
 	}
 }
 
-func (c *Conn) ssh() error {
+// ssh makes one connection attempt, and reports whether it got as far as
+// logging in.
+func (c *Conn) ssh() (connected bool, err error) {
 	if c.LocalSocket != "" {
 		c.link = newLinkPath()
 	}
+	f, err := os.CreateTemp("", "ws-ssh-*")
+	if err != nil {
+		return false, err
+	}
+	c.marker = f.Name()
+	f.Close()
+	os.Remove(c.marker) // ssh creates it again once logged in
+	defer os.Remove(c.marker)
+
 	cmd := exec.Command(c.SSH, c.Args()...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	err := cmd.Run()
+	err = cmd.Run()
+	_, statErr := os.Stat(c.marker)
+	connected = statErr == nil
 	var exit *exec.ExitError
 	if errors.As(err, &exit) && exit.ExitCode() > 0 {
-		return &ExitError{Host: c.Host, Code: exit.ExitCode()}
+		return connected, &ExitError{Host: c.Host, Code: exit.ExitCode()}
 	}
-	return err
+	return connected, err
 }
 
 // ExitError is a non-zero exit from ssh or the remote command.

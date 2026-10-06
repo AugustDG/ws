@@ -213,3 +213,42 @@ func (s Store) Last() (string, Use, bool, error) {
 	}
 	return name, last, name != "", err
 }
+
+// HostReport is what a host last reported of its workspaces over the
+// link, as discover items in JSON (state can't import discover).
+type HostReport struct {
+	At    time.Time       `json:"at"`
+	Items json.RawMessage `json:"items"`
+}
+
+// hostsPath has no .json extension so Names doesn't list it as a session.
+func (s Store) hostsPath() string { return filepath.Join(s.Dir, "hosts") }
+
+// HostItems returns each host's last report, by host.
+func (s Store) HostItems() (map[string]HostReport, error) {
+	reports := map[string]HostReport{}
+	data, err := os.ReadFile(s.hostsPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return reports, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return reports, json.Unmarshal(data, &reports)
+}
+
+// SaveHostItems replaces host's report with items, stamped now.
+func (s Store) SaveHostItems(host string, items any) error {
+	data, err := json.Marshal(items)
+	if err != nil {
+		return err
+	}
+	return s.locked(s.hostsPath(), func() error {
+		reports, err := s.HostItems()
+		if err != nil {
+			return err
+		}
+		reports[host] = HostReport{At: time.Now(), Items: data}
+		return s.write(s.hostsPath(), reports)
+	})
+}

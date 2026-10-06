@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,9 +21,10 @@ import (
 // the host's picker uses it to list this machine's items and to pick one.
 // After a pick the host detaches, ssh exits, and ws ssh opens the choice.
 
-// LinkFile, in the host's state dir, holds the forwarded socket's path.
-// The newest connection writes it, so it names the machine most recently
-// connected from.
+// LinkFile, in the host's state dir, holds the forwarded socket's path and,
+// on a second line, the name ws ssh reached the host by. The newest
+// connection writes it, so it names the machine most recently connected
+// from.
 const LinkFile = "link"
 
 // linkGlob matches the sockets ssh forwards on hosts.
@@ -35,8 +37,9 @@ func newLinkPath() string {
 }
 
 type linkRequest struct {
-	Op   string         `json:"op"` // "items" or "open"
-	Item *discover.Item `json:"item,omitempty"`
+	Op    string          `json:"op"` // "items", "open" or "push"
+	Item  *discover.Item  `json:"item,omitempty"`
+	Items []discover.Item `json:"items,omitempty"`
 }
 
 type linkResponse struct {
@@ -49,19 +52,21 @@ type Link struct {
 	Path string
 
 	items  func() []discover.Item
+	push   func([]discover.Item)
 	ln     net.Listener
 	mu     sync.Mutex
 	chosen *discover.Item
 }
 
-// Listen serves items at path until Close.
-func Listen(path string, items func() []discover.Item) (*Link, error) {
+// Listen serves items at path until Close, and hands what the host
+// pushes of its own workspaces to push.
+func Listen(path string, items func() []discover.Item, push func([]discover.Item)) (*Link, error) {
 	_ = os.Remove(path)
 	ln, err := net.Listen("unix", path)
 	if err != nil {
 		return nil, err
 	}
-	l := &Link{Path: path, items: items, ln: ln}
+	l := &Link{Path: path, items: items, push: push, ln: ln}
 	go l.serve()
 	return l, nil
 }
@@ -91,6 +96,8 @@ func (l *Link) handle(conn net.Conn) {
 		l.mu.Lock()
 		l.chosen = req.Item
 		l.mu.Unlock()
+	case req.Op == "push":
+		l.push(req.Items)
 	default:
 		resp.Error = fmt.Sprintf("unknown request %q", req.Op)
 	}
@@ -115,13 +122,17 @@ func (l *Link) Close() {
 }
 
 // LinkPath is the socket recorded in the host's state dir, or "" when ws
-// ssh never connected to it.
-func LinkPath(stateDir string) string {
+// ssh never connected to it. LinkHost is the name it was reached by.
+func LinkPath(stateDir string) string { path, _ := readLinkFile(stateDir); return path }
+func LinkHost(stateDir string) string { _, host := readLinkFile(stateDir); return host }
+
+func readLinkFile(stateDir string) (path, host string) {
 	b, err := os.ReadFile(filepath.Join(stateDir, LinkFile))
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	return string(b)
+	path, host, _ = strings.Cut(strings.TrimSpace(string(b)), "\n")
+	return path, host
 }
 
 func call(path string, req linkRequest) (linkResponse, error) {
@@ -144,12 +155,18 @@ func call(path string, req linkRequest) (linkResponse, error) {
 	return resp, nil
 }
 
-// LinkItems asks the machine at the other end of the link for its items,
-// marked as seen via it.
+// LocalMachine is what a host calls the machine ws ssh connected from.
+const LocalMachine = "local"
+
+// LinkItems asks the machine at the other end of the link for its items.
+// Its own are placed on LocalMachine; all of them are marked as reached via it.
 func LinkItems(path string) ([]discover.Item, error) {
 	resp, err := call(path, linkRequest{Op: "items"})
 	for i := range resp.Items {
-		resp.Items[i].Via = "local"
+		if resp.Items[i].Machine == "" {
+			resp.Items[i].Machine = LocalMachine
+		}
+		resp.Items[i].Via = LocalMachine
 	}
 	return resp.Items, err
 }
@@ -158,7 +175,17 @@ func LinkItems(path string) ([]discover.Item, error) {
 // client detaches.
 func LinkOpen(path string, it discover.Item) error {
 	it.Via = ""
+	if it.Machine == LocalMachine {
+		it.Machine = ""
+	}
 	_, err := call(path, linkRequest{Op: "open", Item: &it})
+	return err
+}
+
+// LinkPush reports this host's own workspaces to the machine at the other
+// end, so its picker can list them after the connection ends.
+func LinkPush(path string, items []discover.Item) error {
+	_, err := call(path, linkRequest{Op: "push", Items: items})
 	return err
 }
 

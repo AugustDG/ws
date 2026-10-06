@@ -26,7 +26,7 @@ func runPicker(_ *cobra.Command, _ []string) error {
 		return err
 	}
 	for {
-		choice, err := picker.Run(a.pickerItems(), a.cfg.AbbrevHome)
+		choice, err := picker.Run(a.pickerItems(), a.cfg.AbbrevHome, a.pickerOptions())
 		if err != nil {
 			return err
 		}
@@ -56,14 +56,46 @@ func (a *app) items() []discover.Item {
 }
 
 // linked lists the items of the machine ws ssh connected to this host
-// from, while that connection is up.
+// from, while that connection is up, under a header that goes back there.
 func (a *app) linked() ([]discover.Item, error) {
 	path := remote.LinkPath(a.mgr.State.Dir)
 	if path == "" {
 		return nil, nil
 	}
 	remote.PruneLinks(path)
-	return remote.LinkItems(path)
+	items, err := remote.LinkItems(path)
+	if len(items) == 0 {
+		return nil, err
+	}
+	back := discover.Item{Name: remote.LocalMachine, Kind: discover.Host, Machine: remote.LocalMachine, Via: remote.LocalMachine}
+	return append([]discover.Item{back}, items...), err
+}
+
+// here is this machine's own items, which a host reports over the link.
+func (a *app) here() []discover.Item {
+	return a.forLink(slices.DeleteFunc(a.items(), func(it discover.Item) bool { return !it.Here() }))
+}
+
+// forLink readies items for the other end of the link, which can't
+// shorten this machine's home dir in their paths.
+func (a *app) forLink(items []discover.Item) []discover.Item {
+	for i := range items {
+		items[i].Path = a.cfg.AbbrevHome(items[i].Path)
+	}
+	return items
+}
+
+// pickerOptions names this machine's group: "local", or on a host
+// reached with ws ssh, the name it was reached by.
+func (a *app) pickerOptions() picker.Options {
+	if remote.LinkPath(a.mgr.State.Dir) == "" {
+		return picker.Options{Here: remote.LocalMachine}
+	}
+	name := remote.LinkHost(a.mgr.State.Dir)
+	if name == "" {
+		name, _ = os.Hostname()
+	}
+	return picker.Options{Here: name, Remote: true}
 }
 
 // pickerItems is items with the session ws runs in moved to the end, since
@@ -88,14 +120,17 @@ func (a *app) pickerItems() []discover.Item {
 // was reached from is opened there.
 func (a *app) open(it discover.Item) error {
 	if it.Via != "" {
-		// Detaching ends the ssh session; ws ssh on the other end opens it.
-		if err := remote.LinkOpen(remote.LinkPath(a.mgr.State.Dir), it); err != nil {
-			return err
+		// Detaching ends the ssh session; ws ssh on the other end opens the
+		// item, or for the header, goes back to the session it came from.
+		if it.Kind != discover.Host || it.Machine != remote.LocalMachine {
+			if err := remote.LinkOpen(remote.LinkPath(a.mgr.State.Dir), it); err != nil {
+				return err
+			}
 		}
 		_, err := a.tmux.Run("detach-client")
 		return err
 	}
-	if it.Kind == discover.Remote {
+	if !it.Here() {
 		return a.connect(it.Host, it.Target)
 	}
 	if !it.Running {

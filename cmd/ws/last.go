@@ -46,8 +46,10 @@ didn't start are never recorded.`,
 	return cmd
 }
 
-// recordLast stamps session as used now, if ws started it.
+// recordLast stamps session as used now, if ws started it, and reports
+// the change over the link when this host was reached with ws ssh.
 func (a *app) recordLast(session string) error {
+	defer a.pushLink()
 	s, ok, err := a.tmux.Session(session)
 	if err != nil || !ok || !s.Managed {
 		return err

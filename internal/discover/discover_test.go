@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/AugustDG/ws/internal/state"
 )
 
 func static(items ...Item) Source {
@@ -67,7 +69,7 @@ func TestCollectKeepsRemotesApart(t *testing.T) {
 	got := Collect(
 		map[string]time.Time{"box": at(9)},
 		static(Item{Name: "box", Kind: Session, Running: true, LastUsed: at(1)}),
-		static(Item{Name: "box", Kind: Remote, Host: "box", LastUsed: at(5)}),
+		static(Item{Name: "box", Kind: Remote, Machine: "box", Host: "box", LastUsed: at(5)}),
 	)
 	if len(got) != 2 {
 		t.Fatalf("a remote merged with a local session: %+v", got)
@@ -78,5 +80,51 @@ func TestCollectKeepsRemotesApart(t *testing.T) {
 	}
 	if got[1].State() != "remote" {
 		t.Errorf("remote state %q", got[1].State())
+	}
+}
+
+func TestRemotes(t *testing.T) {
+	st := state.Store{Dir: t.TempDir()}
+	for _, r := range [][2]string{{"box", "dev"}, {"box", "old"}, {"pi", ""}} {
+		if err := st.RecordRemote(r[0], r[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	report := []Item{{Name: "dev", Kind: Session, Running: true}, {Name: "app", Kind: Project, Path: "/srv/app"}}
+	if err := st.SaveHostItems("box", report); err != nil {
+		t.Fatal(err)
+	}
+	items, err := Remotes(st)()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, it := range items {
+		got = append(got, it.Machine+"/"+it.Name+"/"+it.Kind.String())
+		if it.Here() || it.Host != it.Machine {
+			t.Errorf("%+v isn't placed on its host", it)
+		}
+	}
+	// pi was connected to last, then box. box reported, so its report
+	// replaces the targets it was given; pi never did.
+	if err := st.RecordRemote("pi", "work"); err != nil {
+		t.Fatal(err)
+	}
+	items, err = Remotes(st)()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = nil
+	for _, it := range items {
+		got = append(got, it.Machine+"/"+it.Name+"/"+it.Kind.String())
+	}
+	want := "pi/pi/host pi/work/remote box/box/host box/dev/session box/app/project"
+	if strings.Join(got, " ") != want {
+		t.Errorf("got  %s\nwant %s", strings.Join(got, " "), want)
+	}
+	for _, it := range items {
+		if it.Name == "app" && (!it.Cached || it.Target != "app" || it.Label() != "box project") {
+			t.Errorf("reported item %+v", it)
+		}
 	}
 }

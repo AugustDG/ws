@@ -59,7 +59,7 @@ ws ssh setup HOST installs tmux and ws on HOST and copies your config.`,
 	cmd.Flags().StringVar(&returnTo, "return-to", "", "internal: session to reattach afterwards")
 	_ = cmd.Flags().MarkHidden("from-tmux")
 	_ = cmd.Flags().MarkHidden("return-to")
-	cmd.AddCommand(sshSetupCmd())
+	cmd.AddCommand(sshSetupCmd(), sshPushCmd())
 	return cmd
 }
 
@@ -111,7 +111,7 @@ func (a *app) visit(host, target string) (*discover.Item, error) {
 		if !picked {
 			return nil, nil
 		}
-		if chosen.Kind != discover.Remote {
+		if chosen.Here() {
 			return &chosen, nil
 		}
 		host, target = chosen.Host, chosen.Target
@@ -128,11 +128,14 @@ func (a *app) listenLink(host string) *remote.Link {
 	} else if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil
 	}
-	link, err := remote.Listen(path, func() []discover.Item {
-		return slices.DeleteFunc(a.items(), func(it discover.Item) bool {
-			return it.Kind == discover.Remote && it.Host == host
-		})
-	})
+	items := func() []discover.Item {
+		// The host lists its own workspaces itself.
+		return a.forLink(slices.DeleteFunc(a.items(), func(it discover.Item) bool { return it.Machine == host }))
+	}
+	push := func(items []discover.Item) {
+		_ = a.mgr.State.SaveHostItems(host, items)
+	}
+	link, err := remote.Listen(path, items, push)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ws ssh: the host's picker won't list this machine: %v\n", err)
 		return nil
@@ -193,4 +196,32 @@ func completeHosts(_ *cobra.Command, args []string, _ string) ([]string, cobra.S
 		return nil, cobra.ShellCompDirectiveError
 	}
 	return remote.Hosts(filepath.Join(home, ".ssh", "config")), cobra.ShellCompDirectiveNoFileComp
+}
+
+// sshPushCmd is run by tmux hooks on a host: it reports the host's
+// workspaces to the machine connected over the link, if any, so its
+// picker can list them later.
+func sshPushCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "push",
+		Short:  "internal: report this host's workspaces over the link",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := newApp()
+			if err != nil {
+				return err
+			}
+			a.pushLink()
+			return nil
+		},
+	}
+}
+
+// pushLink reports this host's own workspaces over the link. A dead or
+// missing link is fine: nobody is listening.
+func (a *app) pushLink() {
+	if path := remote.LinkPath(a.mgr.State.Dir); path != "" {
+		_ = remote.LinkPush(path, a.here())
+	}
 }

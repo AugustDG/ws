@@ -26,7 +26,8 @@ func TestLink(t *testing.T) {
 		{Name: "box", Kind: discover.Remote, Host: "box"},
 	}
 	path := filepath.Join(sockDir(t), "l.sock")
-	link, err := Listen(path, func() []discover.Item { return items })
+	var pushed []discover.Item
+	link, err := Listen(path, func() []discover.Item { return items }, func(it []discover.Item) { pushed = it })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,6 +52,12 @@ func TestLink(t *testing.T) {
 	}
 	if _, ok := link.Chosen(); ok {
 		t.Error("Chosen didn't clear")
+	}
+	if err := LinkPush(path, []discover.Item{{Name: "srv", Kind: discover.Session}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(pushed) != 1 || pushed[0].Name != "srv" {
+		t.Errorf("pushed %+v", pushed)
 	}
 	link.Close()
 	if _, err := LinkItems(path); err == nil {
@@ -87,12 +94,13 @@ func TestPruneLinks(t *testing.T) {
 func TestScriptRecordsLink(t *testing.T) {
 	bin := fakeBin(t, "tmux")
 	home := t.TempDir()
-	cmd := Script("", "/tmp/ws-link-abc.sock")
+	cmd := Script("", "/tmp/ws-link-abc.sock", "box")
 	out := hostShellPath(t, home, bin, cmd)
 	if out != "tmux\nnew-session\n-A\n-s\nmain\n" {
 		t.Errorf("ran %q", out)
 	}
-	if got := LinkPath(filepath.Join(home, ".local/state/ws")); got != "/tmp/ws-link-abc.sock" {
-		t.Errorf("recorded %q", got)
+	state := filepath.Join(home, ".local/state/ws")
+	if path, host := LinkPath(state), LinkHost(state); path != "/tmp/ws-link-abc.sock" || host != "box" {
+		t.Errorf("recorded %q %q", path, host)
 	}
 }

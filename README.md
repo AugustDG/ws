@@ -166,25 +166,32 @@ HOST. `HOST` is anything `ssh` accepts, aliases in `~/.ssh/config` included
 - Run inside tmux, the local client detaches and runs ssh in its place
   (`detach-client -E`), so the host's tmux isn't nested and gets every key.
   Detaching on the host brings back the local session you left.
-- The remote session outlives the connection. When an established
-  connection drops (ssh exits 255), ws reconnects with backoff until it's
-  back or you press ctrl-c. A connection that fails within its first 10
-  seconds isn't retried, so a wrong host or a failed login stops at once.
-- Each connection that ends cleanly is recorded in `~/.local/state/ws/remotes`
-  and shows in the picker and `ws ls` as `host` or `host:target`, kind
-  `remote`, sorted by last use with everything else. Opening one runs
-  `ws ssh` for it. The list comes from that record, not the network, so the
-  picker never waits on ssh, and it can't tell whether the remote session
-  is still running. `ws ls --plain` leaves remotes out, since its names are
-  for `ws start`.
-- While connected, the host's picker lists this machine's sessions and
-  projects too (kind `local session` / `local project`), along with your
-  other remotes. Picking one detaches from the host, and ws opens it here,
-  or connects to the other host. This runs over a Unix socket that ssh
-  forwards to `/tmp/ws-link-*.sock` on the host (mode 0600, removed by the
-  host's picker once dead). If the host's sshd disallows socket forwarding,
-  ssh prints a warning and the picker there shows the host's own items
-  only.
+- The remote session outlives the connection. When a connection that got
+  in drops (ssh exits 255), ws reconnects with backoff until it's back or
+  you press ctrl-c. One that never logged in (wrong host, unreachable, failed
+  login) isn't retried, however long ssh took to give up. ws learns that ssh
+  logged in through `LocalCommand`, which overrides any `LocalCommand` you
+  set for the host.
+- The picker groups items by machine: this one first (green header), then
+  each host you've used `ws ssh` with (amber, like its status bar), most
+  recent first. Selecting a host's header connects to its last workspace,
+  and selecting an item under it connects to that one.
+- A host's items are what it last reported. While you're connected, the
+  host reports its sessions and projects whenever one is created, closed
+  or switched to, and the header says when that was (`seen 4m ago`).
+  Their dots are dimmed, since the state may have changed since. Hosts
+  that never reported list the targets you gave `ws ssh`. The picker
+  reads this from `~/.local/state/ws`, never the network, so it doesn't
+  wait on ssh. `ws ls` shows the same items; `ws ls --plain` lists only
+  this machine's, since its names are for `ws start`.
+- On a host, the picker shows the connecting machine's items under
+  `local`. Picking one detaches from the host and opens it there; picking
+  the `local` header goes back to the session you left, and picking
+  another host moves straight to it. This runs over a Unix socket that
+  ssh forwards to `/tmp/ws-link-*.sock` on the host (mode 0600, removed by
+  the host's picker once dead). If the host's sshd disallows socket
+  forwarding, ssh prints a warning and the host's picker lists only its
+  own items.
 - ssh runs with `ServerAliveInterval=15` and `ServerAliveCountMax=3`, so a
   dead link is noticed within about 45 seconds. Other ssh options belong in
   `~/.ssh/config`.

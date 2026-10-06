@@ -99,20 +99,28 @@ func TestValidate(t *testing.T) {
 }
 
 // fakeSSH is an ssh that runs the shell case for its attempt number, so a
-// test scripts each connection: `1) sleep 0.2; exit 255;; *) exit 0;;`.
+// test scripts each connection. `connect` does what ssh does once it has
+// logged in: runs the LocalCommand. So `1) connect; exit 255;;` is a
+// connection that got in and then dropped.
 func fakeSSH(t *testing.T, cases string) (*Conn, func() int) {
 	t.Helper()
 	dir := t.TempDir()
 	count := filepath.Join(dir, "count")
-	script := "#!/bin/sh\n" +
-		`n=$(cat "` + count + `" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "` + count + `"` + "\n" +
-		"case $n in " + cases + " esac\n"
+	script := `#!/bin/sh
+lc=""
+while [ $# -gt 0 ]; do
+  case $1 in -o) case $2 in LocalCommand=*) lc=${2#LocalCommand=};; esac; shift;; esac
+  shift
+done
+connect() { sh -c "$lc"; }
+n=$(cat "` + count + `" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "` + count + `"
+case $n in ` + cases + ` esac
+`
 	ssh := filepath.Join(dir, "ssh")
 	if err := os.WriteFile(ssh, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	c := &Conn{Host: "h", SSH: ssh, Log: &bytes.Buffer{},
-		Live: 100 * time.Millisecond, Backoff: 10 * time.Millisecond, MaxBackoff: 20 * time.Millisecond}
+	c := &Conn{Host: "h", SSH: ssh, Log: &bytes.Buffer{}, Backoff: 10 * time.Millisecond, MaxBackoff: 20 * time.Millisecond}
 	attempts := func() int {
 		b, _ := os.ReadFile(count)
 		var n int
@@ -131,17 +139,27 @@ func TestRun(t *testing.T) {
 		code     int // 0 means Run returns nil
 		attempts int
 	}{
-		{"clean detach", "*) exit 0;;", 0, 1},
+		{"clean detach", "*) connect; exit 0;;", 0, 1},
 		{"never connected", "*) exit 255;;", 255, 1},
-		{"remote failure", "*) exit 127;;", 127, 1},
-		{"drop then back", "1) sleep 0.2; exit 255;; *) exit 0;;", 0, 2},
-		{"keeps retrying while down", "1) sleep 0.2; exit 255;; 2|3) exit 255;; *) exit 0;;", 0, 4},
-		{"second drop", "1|2) sleep 0.2; exit 255;; *) exit 0;;", 0, 3},
+		// Slow to give up (an unreachable host, a login that took a while
+		// to fail) still isn't a connection that dropped.
+		{"slow failure", "*) sleep 0.3; exit 255;;", 255, 1},
+		{"remote failure", "*) connect; exit 127;;", 127, 1},
+		{"drop then back", "1) connect; exit 255;; *) connect; exit 0;;", 0, 2},
+		{"keeps retrying while down", "1) connect; exit 255;; 2|3) exit 255;; *) connect; exit 0;;", 0, 4},
+		{"second drop", "1|2) connect; exit 255;; *) connect; exit 0;;", 0, 3},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			c, attempts := fakeSSH(t, tc.ssh)
-			err := c.Run()
+			done := make(chan error, 1)
+			go func() { done <- c.Run() }()
+			var err error
+			select {
+			case err = <-done:
+			case <-time.After(10 * time.Second):
+				t.Fatalf("still retrying after %d attempts", attempts())
+			}
 			if got := exitCode(err); got != tc.code || (tc.code == 0 && err != nil) {
 				t.Fatalf("err %v, want exit %d", err, tc.code)
 			}

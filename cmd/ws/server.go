@@ -33,7 +33,9 @@ func (a *app) stopFromServer(name string, opts workspace.StopOptions) error {
 const recordHookIndex = 77
 
 // installHooks has the tmux server record the workspace each client
-// switches or attaches to, for ws last. Setting them again is harmless.
+// switches or attaches to, for ws last, and on a host reached with ws ssh,
+// report its workspaces whenever they change. Setting them again is
+// harmless.
 func (a *app) installHooks() error {
 	script, err := a.serverScript("last.log", []string{"last"}, "--record=#{q:session_name}")
 	if err != nil {
@@ -41,6 +43,18 @@ func (a *app) installHooks() error {
 	}
 	cmd := "run-shell -b " + tmux.Quote(script)
 	for _, hook := range []string{"client-session-changed", "client-attached"} {
+		if err := a.tmux.SetHook(hook, recordHookIndex, cmd); err != nil {
+			return err
+		}
+	}
+	// On a host reached with ws ssh, new and closed sessions are reported
+	// over the link too; ws last --record reports on the others.
+	push, err := a.serverScript("push.log", []string{"ssh", "push"}, "")
+	if err != nil {
+		return err
+	}
+	cmd = "run-shell -b " + tmux.Quote(push)
+	for _, hook := range []string{"session-created", "session-closed"} {
 		if err := a.tmux.SetHook(hook, recordHookIndex, cmd); err != nil {
 			return err
 		}
