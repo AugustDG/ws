@@ -38,7 +38,15 @@ type Options struct {
 	// Remote is set on a host reached with ws ssh, which colors its group
 	// like the other hosts.
 	Remote bool
+	// More, when set, loads items that take a while, like the connecting
+	// machine's over the link. The picker shows the rest meanwhile and
+	// adds these when they arrive. Loading names them in the footer.
+	More    func() []discover.Item
+	Loading string
 }
+
+// moreMsg carries what Options.More loaded.
+type moreMsg []discover.Item
 
 // Run shows items, grouped by machine, and returns the user's choice.
 // display shortens paths.
@@ -85,6 +93,7 @@ type model struct {
 	choice   Choice
 	now      time.Time
 	query    string // what rows were built for
+	loading  bool   // Options.More hasn't returned yet
 }
 
 func newModel(items []discover.Item, display func(string) string, opts Options) model {
@@ -93,12 +102,39 @@ func newModel(items []discover.Item, display func(string) string, opts Options) 
 	in.Placeholder = "project, session or host"
 	in.Focus()
 
-	m := model{input: in, items: items, display: display, opts: opts, height: 20, width: 100, now: time.Now()}
-	for _, it := range items {
-		m.haystack = append(m.haystack, it.Name+" "+display(it.Path)+" "+it.Machine)
-	}
+	m := model{input: in, display: display, opts: opts, height: 20, width: 100, now: time.Now(), loading: opts.More != nil}
+	m.add(items)
 	m.filter()
 	return m
+}
+
+func (m *model) add(items []discover.Item) {
+	for _, it := range items {
+		m.items = append(m.items, it)
+		m.haystack = append(m.haystack, it.Name+" "+m.display(it.Path)+" "+it.Machine)
+	}
+}
+
+// addMore adds what Options.More loaded and rebuilds the rows, keeping
+// the selected item selected.
+func (m *model) addMore(items []discover.Item) {
+	m.loading = false
+	selected := -1
+	if m.cursor < len(m.rows) {
+		selected = m.rows[m.cursor].item
+	}
+	m.add(items)
+	m.rows = nil
+	m.filter()
+	if selected < 0 {
+		return
+	}
+	for i, r := range m.rows {
+		if r.item == selected {
+			m.cursor = i
+			return
+		}
+	}
 }
 
 // filter rebuilds the rows when the query changed. Without a query they're
@@ -189,10 +225,19 @@ func (m *model) step(dir int) {
 	}
 }
 
-func (m model) Init() tea.Cmd { return textinput.Blink }
+func (m model) Init() tea.Cmd {
+	if m.opts.More == nil {
+		return textinput.Blink
+	}
+	more := m.opts.More
+	return tea.Batch(textinput.Blink, func() tea.Msg { return moreMsg(more()) })
+}
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case moreMsg:
+		m.addMore(msg)
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.height = max(msg.Height-3, 1)
 		m.width = msg.Width
@@ -255,7 +300,11 @@ func (m model) View() string {
 			shown++
 		}
 	}
-	b.WriteString(styleDim.Render(fmt.Sprintf("%d/%d  enter open · ctrl-x stop · esc quit", shown, items)))
+	footer := fmt.Sprintf("%d/%d  enter open · ctrl-x stop · esc quit", shown, items)
+	if m.loading {
+		footer += " · loading " + m.opts.Loading + "…"
+	}
+	b.WriteString(styleDim.Render(footer))
 	return b.String()
 }
 

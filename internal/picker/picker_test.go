@@ -120,3 +120,36 @@ func TestSearchRanksAcrossMachines(t *testing.T) {
 		t.Error("clearing the query didn't bring the groups back")
 	}
 }
+
+func TestMoreLoadsAfterShowing(t *testing.T) {
+	items := []discover.Item{
+		{Name: "api", Kind: discover.Session},
+		{Name: "web", Kind: discover.Session},
+	}
+	more := []discover.Item{
+		{Name: "local", Kind: discover.Host, Machine: "local", Via: "local"},
+		{Name: "viber", Kind: discover.Project, Machine: "local", Via: "local"},
+	}
+	opts := Options{Here: "box", Remote: true, More: func() []discover.Item { return more }, Loading: "local"}
+	m := newModel(items, func(s string) string { return s }, opts)
+	if !strings.Contains(m.View(), "loading local") {
+		t.Error("footer doesn't say what's loading")
+	}
+	m.step(1) // on web
+	next, _ := m.Update(moreMsg(more))
+	m = next.(model)
+	want := `[] *
+  api
+  web
+[local] local
+  viber`
+	if got := layout(m); got != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+	if m.items[m.rows[m.cursor].item].Name != "web" {
+		t.Error("loading moved the selection")
+	}
+	if strings.Contains(m.View(), "loading") {
+		t.Error("still loading after More returned")
+	}
+}

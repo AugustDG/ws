@@ -43,16 +43,24 @@ func runPicker(_ *cobra.Command, _ []string) error {
 	}
 }
 
-// items is what the picker and ws ls show: running sessions, projects
-// and remote workspaces, most recently used first.
+// items is what ws ls shows: running sessions, projects and remote
+// workspaces, most recently used first, and on a host reached with ws ssh,
+// the connecting machine's.
 func (a *app) items() []discover.Item {
+	return a.collect(a.linked)
+}
+
+// collect merges this machine's items and the hosts' last reports from
+// state with more sources.
+func (a *app) collect(more ...discover.Source) []discover.Item {
 	used := map[string]time.Time{}
 	if uses, err := a.mgr.State.Used(); err == nil {
 		for name, u := range uses {
 			used[name] = u.At
 		}
 	}
-	return discover.Collect(used, discover.Sessions(a.tmux), discover.Projects(a.cfg), discover.Remotes(a.mgr.State), a.linked)
+	sources := append([]discover.Source{discover.Sessions(a.tmux), discover.Projects(a.cfg), discover.Remotes(a.mgr.State)}, more...)
+	return discover.Collect(used, sources...)
 }
 
 // linked lists the items of the machine ws ssh connected to this host
@@ -73,7 +81,7 @@ func (a *app) linked() ([]discover.Item, error) {
 
 // here is this machine's own items, which a host reports over the link.
 func (a *app) here() []discover.Item {
-	return a.forLink(slices.DeleteFunc(a.items(), func(it discover.Item) bool { return !it.Here() }))
+	return a.forLink(slices.DeleteFunc(a.collect(), func(it discover.Item) bool { return !it.Here() }))
 }
 
 // forLink readies items for the other end of the link, which can't
@@ -86,7 +94,8 @@ func (a *app) forLink(items []discover.Item) []discover.Item {
 }
 
 // pickerOptions names this machine's group: "local", or on a host
-// reached with ws ssh, the name it was reached by.
+// reached with ws ssh, the name it was reached by. There, the connecting
+// machine's items load while the picker is already up.
 func (a *app) pickerOptions() picker.Options {
 	if remote.LinkPath(a.mgr.State.Dir) == "" {
 		return picker.Options{Here: remote.LocalMachine}
@@ -95,14 +104,19 @@ func (a *app) pickerOptions() picker.Options {
 	if name == "" {
 		name, _ = os.Hostname()
 	}
-	return picker.Options{Here: name, Remote: true}
+	more := func() []discover.Item {
+		items, _ := a.linked()
+		return items
+	}
+	return picker.Options{Here: name, Remote: true, More: more, Loading: remote.LocalMachine}
 }
 
-// pickerItems is items with the session ws runs in moved to the end, since
-// switching to it does nothing. The top entry is then the one you were in
-// before.
+// pickerItems is what the picker shows at once: items without the
+// connecting machine's, which it loads afterwards (see pickerOptions).
+// The session ws runs in goes last, since switching to it does nothing,
+// so the top entry is the one you were in before.
 func (a *app) pickerItems() []discover.Item {
-	items := a.items()
+	items := a.collect()
 	current, err := a.tmux.CurrentSession()
 	if err != nil {
 		return items
